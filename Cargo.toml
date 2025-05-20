@@ -1,0 +1,44 @@
+[package]
+name = "shm_frame_viewer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "A viewer for shared memory frames from medical imaging devices"
+
+[dependencies]
+eframe = "0.31.1"
+egui = "0.31.1"
+memmap2 = "0.9.5"
+serde_json = "1.0.108"
+clap = { version = "4.1.11", features = ["derive"] }
+libc = "0.2.172"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+
+[profile.dev]
+opt-level = 1      # Use slightly better optimizations in development
+debug = true       # Full debug info
+
+[package.metadata.deb]
+maintainer = "Your Name <your.email@example.com>"
+copyright = "2023, Your Name <your.email@example.com>"
+license-file = ["LICENSE", "4"]
+extended-description = """
+A real-time viewer for shared memory frames.
+Displays ultrasound or other medical imaging data
+streamed through shared memory from a C++ producer.
+"""
+depends = "$auto"
+section = "medical"
+priority = "optional"
+assets = [
+    ["target/release/shm_frame_viewer", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/shm_frame_viewer/", "644"],
+]
+
