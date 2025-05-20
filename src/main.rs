@@ -1,15 +1,16 @@
-use std::time::{Duration, Instant};
-use std::sync::{Arc, Mutex};
-use memmap2::{MmapOptions, MmapMut};
+use clap::Parser;
+use memmap2::{MmapMut, MmapOptions};
+use serde_json::Value;
+use std::arch::x86_64::*;
 use std::fs::OpenOptions;
 use std::io::ErrorKind;
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use serde_json::Value;
-use clap::Parser;
-use std::arch::x86_64::*;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use eframe::egui;
-use egui::{Color32, RichText, Vec2};
+use eframe::epaint::StrokeKind;
+use egui::{Color32, FontId, Pos2, Rect, RichText, Stroke, TextStyle, Vec2};
 
 // Add SIMD feature detection
 #[cfg(target_arch = "x86_64")]
@@ -68,47 +69,47 @@ struct Args {
 }
 
 // Structure to match the C++ FrameHeader with correct alignment
-#[repr(C, align(8))]  // Match C++ alignas(8)
+#[repr(C, align(8))] // Match C++ alignas(8)
 #[derive(Debug, Copy, Clone)]
 struct FrameHeader {
-    frame_id: u64,             // Unique frame identifier
-    timestamp: u64,            // Frame timestamp (nanoseconds since epoch)
-    width: u32,                // Frame width in pixels
-    height: u32,               // Frame height in pixels
-    bytes_per_pixel: u32,      // Bytes per pixel
-    data_size: u32,            // Size of frame data in bytes
-    format_code: u32,          // Format identifier code
-    flags: u32,                // Additional flags
-    sequence_number: u64,      // Sequence number for ordering
-    metadata_offset: u32,      // Offset to JSON metadata (if present)
-    metadata_size: u32,        // Size of metadata in bytes
-    padding: [u64; 4],         // Reserved for future use
+    frame_id: u64,        // Unique frame identifier
+    timestamp: u64,       // Frame timestamp (nanoseconds since epoch)
+    width: u32,           // Frame width in pixels
+    height: u32,          // Frame height in pixels
+    bytes_per_pixel: u32, // Bytes per pixel
+    data_size: u32,       // Size of frame data in bytes
+    format_code: u32,     // Format identifier code
+    flags: u32,           // Additional flags
+    sequence_number: u64, // Sequence number for ordering
+    metadata_offset: u32, // Offset to JSON metadata (if present)
+    metadata_size: u32,   // Size of metadata in bytes
+    padding: [u64; 4],    // Reserved for future use
 }
 
 // Structure to match the C++ ControlBlock with correct alignment
-#[repr(C, align(64))]  // Match C++ alignas(64)
+#[repr(C, align(64))] // Match C++ alignas(64)
 #[derive(Debug)]
 struct ControlBlock {
-    write_index: AtomicU64,      // Current write position
-    read_index: AtomicU64,       // Current read position
-    frame_count: AtomicU64,      // Number of frames in the buffer
+    write_index: AtomicU64,          // Current write position
+    read_index: AtomicU64,           // Current read position
+    frame_count: AtomicU64,          // Number of frames in the buffer
     total_frames_written: AtomicU64, // Total number of frames written
     total_frames_read: AtomicU64,    // Total number of frames read
-    dropped_frames: AtomicU64,   // Frames dropped due to buffer full
-    active: AtomicBool,          // Whether the shared memory is active
-    _padding1: [u8; 7],          // Padding for alignment after bool
-    last_write_time: AtomicU64,  // Timestamp of last write (ns since epoch)
-    last_read_time: AtomicU64,   // Timestamp of last read (ns since epoch)
-    metadata_offset: u32,        // Offset to metadata area
-    metadata_size: u32,          // Size of metadata area
-    flags: u32,                  // Additional flags
-    _padding2: [u8; 184],        // Padding to ensure proper alignment
+    dropped_frames: AtomicU64,       // Frames dropped due to buffer full
+    active: AtomicBool,              // Whether the shared memory is active
+    _padding1: [u8; 7],              // Padding for alignment after bool
+    last_write_time: AtomicU64,      // Timestamp of last write (ns since epoch)
+    last_read_time: AtomicU64,       // Timestamp of last read (ns since epoch)
+    metadata_offset: u32,            // Offset to metadata area
+    metadata_size: u32,              // Size of metadata area
+    flags: u32,                      // Additional flags
+    _padding2: [u8; 184],            // Padding to ensure proper alignment
 }
 
 // SharedMemoryReader manages access to the shared memory
 struct SharedMemoryReader {
-    mmap: Option<MmapMut>,        // Now optional to allow reconnection
-    shm_name: String,             // Store the name for reconnection
+    mmap: Option<MmapMut>, // Now optional to allow reconnection
+    shm_name: String,      // Store the name for reconnection
     control_block_size: usize,
     metadata_area_size: usize,
     data_offset: usize,
@@ -116,10 +117,10 @@ struct SharedMemoryReader {
     frame_slot_size: usize,
     last_processed_index: u64,
     verbose: bool,
-    connected: bool,              // Track connection state
+    connected: bool,                  // Track connection state
     last_connection_attempt: Instant, // When we last tried to connect
-    last_frame_time: Instant,     // Track when we last received a frame
-    no_frames_timeout: Duration,  // How long to wait before considering connection stale
+    last_frame_time: Instant,         // Track when we last received a frame
+    no_frames_timeout: Duration,      // How long to wait before considering connection stale
 }
 
 impl SharedMemoryReader {
@@ -128,10 +129,10 @@ impl SharedMemoryReader {
         let mut reader = Self {
             mmap: None,
             shm_name: shm_name.to_string(),
-            control_block_size: size_of::<ControlBlock>(),
+            control_block_size: std::mem::size_of::<ControlBlock>(),
             metadata_area_size: 4096, // Default, will be updated
             data_offset: 0,
-            max_frames: 7,    // Default, will be updated
+            max_frames: 7, // Default, will be updated
             frame_slot_size: 0,
             last_processed_index: 0,
             verbose,
@@ -161,7 +162,11 @@ impl SharedMemoryReader {
             Ok(f) => f,
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 self.connected = false;
-                return Err(format!("Shared memory region '{}' not found. Waiting for producer to start...", self.shm_name).into());
+                return Err(format!(
+                    "Shared memory region '{}' not found. Waiting for producer to start...",
+                    self.shm_name
+                )
+                .into());
             }
             Err(e) => {
                 self.connected = false;
@@ -179,7 +184,10 @@ impl SharedMemoryReader {
         };
 
         if self.verbose {
-            println!("Successfully mapped shared memory, size: {} bytes", mmap.len());
+            println!(
+                "Successfully mapped shared memory, size: {} bytes",
+                mmap.len()
+            );
         }
 
         // Pin memory in RAM to prevent swapping (critical for medical applications)
@@ -191,29 +199,46 @@ impl SharedMemoryReader {
         }
 
         // Get the control block size
-        let control_block_size = size_of::<ControlBlock>();
+        let control_block_size = std::mem::size_of::<ControlBlock>();
 
         // Read the control block - ensure it's within bounds
         if control_block_size > mmap.len() {
             self.connected = false;
-            return Err(format!("Shared memory too small for control block: {} bytes needed, {} available",
-                               control_block_size, mmap.len()).into());
+            return Err(format!(
+                "Shared memory too small for control block: {} bytes needed, {} available",
+                control_block_size,
+                mmap.len()
+            )
+            .into());
         }
 
         let control_block_ptr = mmap.as_ptr() as *const ControlBlock;
         let control_block = unsafe { &*control_block_ptr };
 
         if self.verbose {
-            println!("Control block read: write_index={}, read_index={}, frame_count={}",
-                     control_block.write_index.load(std::sync::atomic::Ordering::Relaxed),
-                     control_block.read_index.load(std::sync::atomic::Ordering::Relaxed),
-                     control_block.frame_count.load(std::sync::atomic::Ordering::Relaxed));
+            println!(
+                "Control block read: write_index={}, read_index={}, frame_count={}",
+                control_block
+                    .write_index
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                control_block
+                    .read_index
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                control_block
+                    .frame_count
+                    .load(std::sync::atomic::Ordering::Relaxed)
+            );
         }
 
         // Verify control block is valid (active flag should be true)
-        if !control_block.active.load(std::sync::atomic::Ordering::Relaxed) {
+        if !control_block
+            .active
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             if self.verbose {
-                println!("Warning: Shared memory exists but is not active. Producer may be initializing...");
+                println!(
+                    "Warning: Shared memory exists but is not active. Producer may be initializing..."
+                );
             }
             // We'll continue anyway - it might become active soon
         }
@@ -221,15 +246,23 @@ impl SharedMemoryReader {
         // Get metadata size from control block
         let metadata_area_size = control_block.metadata_size as usize;
         if self.verbose {
-            println!("Metadata area size from control block: {} bytes", metadata_area_size);
+            println!(
+                "Metadata area size from control block: {} bytes",
+                metadata_area_size
+            );
         }
 
         // Verify metadata offset is valid
         let metadata_offset = control_block.metadata_offset as usize;
         if metadata_offset + metadata_area_size > mmap.len() {
             self.connected = false;
-            return Err(format!("Invalid metadata area: offset {} + size {} exceeds shared memory size {}",
-                               metadata_offset, metadata_area_size, mmap.len()).into());
+            return Err(format!(
+                "Invalid metadata area: offset {} + size {} exceeds shared memory size {}",
+                metadata_offset,
+                metadata_area_size,
+                mmap.len()
+            )
+            .into());
         }
 
         // Calculate data offset (start of frame data)
@@ -239,9 +272,13 @@ impl SharedMemoryReader {
         }
 
         // Read the metadata to get frame slot size and max frames
-        let metadata_slice = &mmap[metadata_offset..(metadata_offset + metadata_area_size).min(mmap.len())];
+        let metadata_slice =
+            &mmap[metadata_offset..(metadata_offset + metadata_area_size).min(mmap.len())];
         // Find null terminator if present
-        let metadata_end = metadata_slice.iter().position(|&b| b == 0).unwrap_or(metadata_slice.len());
+        let metadata_end = metadata_slice
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(metadata_slice.len());
         let metadata_str = std::str::from_utf8(&metadata_slice[..metadata_end]).unwrap_or("{}");
 
         if self.verbose {
@@ -259,16 +296,20 @@ impl SharedMemoryReader {
         // Extract frame_slot_size with safety checks
         let metadata_frame_slot_size = metadata["frame_slot_size"].as_u64().unwrap_or(0) as usize;
         // Validate frame slot size from metadata or use safe default
-        let frame_slot_size = if metadata_frame_slot_size == 0 || metadata_frame_slot_size > 50_000_000 {
-            // Calculate a reasonable default based on 4K resolution + header
-            let default_size = 3840 * 2160 * 4 + size_of::<FrameHeader>();
-            if self.verbose {
-                println!("Warning: Invalid frame_slot_size in metadata, using default: {} bytes", default_size);
-            }
-            default_size
-        } else {
-            metadata_frame_slot_size
-        };
+        let frame_slot_size =
+            if metadata_frame_slot_size == 0 || metadata_frame_slot_size > 50_000_000 {
+                // Calculate a reasonable default based on 4K resolution + header
+                let default_size = 3840 * 2160 * 4 + std::mem::size_of::<FrameHeader>();
+                if self.verbose {
+                    println!(
+                        "Warning: Invalid frame_slot_size in metadata, using default: {} bytes",
+                        default_size
+                    );
+                }
+                default_size
+            } else {
+                metadata_frame_slot_size
+            };
 
         // Extract max_frames with safety checks
         let metadata_max_frames = metadata["max_frames"].as_u64().unwrap_or(0) as usize;
@@ -290,7 +331,10 @@ impl SharedMemoryReader {
         if self.verbose {
             println!("Frame slot size from metadata: {} bytes", frame_slot_size);
             println!("Max frames from metadata: {}", max_frames_from_metadata);
-            println!("Calculated max frames based on memory size: {}", calculated_max_frames);
+            println!(
+                "Calculated max frames based on memory size: {}",
+                calculated_max_frames
+            );
         }
 
         // Use the minimum to be safe
@@ -344,7 +388,10 @@ impl SharedMemoryReader {
         // Check if we haven't received frames for too long
         if self.last_frame_time.elapsed() > self.no_frames_timeout {
             if self.verbose {
-                println!("No frames received for {:?}, marking as disconnected", self.no_frames_timeout);
+                println!(
+                    "No frames received for {:?}, marking as disconnected",
+                    self.no_frames_timeout
+                );
             }
             self.connected = false;
             return false;
@@ -355,7 +402,9 @@ impl SharedMemoryReader {
             // This is unsafe but necessary to check the control block without borrow issues
             if let Some(mmap) = &self.mmap {
                 let control_block_ptr = mmap.as_ptr() as *const ControlBlock;
-                (*control_block_ptr).active.load(std::sync::atomic::Ordering::Acquire)
+                (*control_block_ptr)
+                    .active
+                    .load(std::sync::atomic::Ordering::Acquire)
             } else {
                 false
             }
@@ -383,7 +432,10 @@ impl SharedMemoryReader {
     }
 
     // Zero-copy optimized frame reading with memory prefetching
-    pub fn get_next_frame<'a>(&'a mut self, catchup: bool) -> Result<Option<(FrameHeader, &'a [u8])>, Box<dyn std::error::Error>> {
+    pub fn get_next_frame<'a>(
+        &'a mut self,
+        catchup: bool,
+    ) -> Result<Option<(FrameHeader, &'a [u8])>, Box<dyn std::error::Error>> {
         if !self.is_connected() {
             return Err("Not connected to shared memory".into());
         }
@@ -392,7 +444,9 @@ impl SharedMemoryReader {
         let (write_index, control_block_ptr, mmap_ptr, mmap_len) = unsafe {
             let mmap = self.mmap.as_ref().unwrap();
             let control_block_ptr = mmap.as_ptr() as *const ControlBlock;
-            let write_index = (*control_block_ptr).write_index.load(std::sync::atomic::Ordering::Acquire);
+            let write_index = (*control_block_ptr)
+                .write_index
+                .load(std::sync::atomic::Ordering::Acquire);
             (write_index, control_block_ptr, mmap.as_ptr(), mmap.len())
         };
 
@@ -421,7 +475,7 @@ impl SharedMemoryReader {
         }
 
         // Get frame header directly from memory
-        let header_size = size_of::<FrameHeader>();
+        let header_size = std::mem::size_of::<FrameHeader>();
         if frame_offset + header_size > mmap_len {
             self.last_processed_index = frame_index;
             return Ok(None);
@@ -447,10 +501,7 @@ impl SharedMemoryReader {
 
         // Create slice directly from shared memory - no copying
         let frame_data = unsafe {
-            std::slice::from_raw_parts(
-                mmap_ptr.add(data_start),
-                header.data_size as usize
-            )
+            std::slice::from_raw_parts(mmap_ptr.add(data_start), header.data_size as usize)
         };
 
         // OPTIMIZATION: Prefetch the next frame's header to reduce latency
@@ -462,9 +513,7 @@ impl SharedMemoryReader {
 
                 if next_frame_offset < mmap_len {
                     // Use prefetch hint for next frame with compile-time constant parameter
-                    _mm_prefetch::<_MM_HINT_T0>(
-                        mmap_ptr.add(next_frame_offset) as *const i8
-                    );
+                    _mm_prefetch::<_MM_HINT_T0>(mmap_ptr.add(next_frame_offset) as *const i8);
                 }
             }
         }
@@ -474,19 +523,30 @@ impl SharedMemoryReader {
 
         unsafe {
             // Update the read index in the control block
-            (*control_block_ptr).read_index.store(frame_index + 1, std::sync::atomic::Ordering::Release);
+            (*control_block_ptr)
+                .read_index
+                .store(frame_index + 1, std::sync::atomic::Ordering::Release);
 
             // Update frame count atomically
-            let frame_count = (*control_block_ptr).frame_count.load(std::sync::atomic::Ordering::Acquire);
+            let frame_count = (*control_block_ptr)
+                .frame_count
+                .load(std::sync::atomic::Ordering::Acquire);
             if frame_count > 0 {
-                (*control_block_ptr).frame_count.store(frame_count - 1, std::sync::atomic::Ordering::Release);
+                (*control_block_ptr)
+                    .frame_count
+                    .store(frame_count - 1, std::sync::atomic::Ordering::Release);
             }
 
             // Update read stats counter
-            (*control_block_ptr).total_frames_read.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            (*control_block_ptr)
+                .total_frames_read
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             (*control_block_ptr).last_read_time.store(
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64,
-                std::sync::atomic::Ordering::Relaxed
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
             );
         }
 
@@ -508,9 +568,15 @@ impl SharedMemoryReader {
             let control_block_ptr = mmap.as_ptr() as *const ControlBlock;
 
             (
-                (*control_block_ptr).total_frames_written.load(std::sync::atomic::Ordering::Relaxed),
-                (*control_block_ptr).frame_count.load(std::sync::atomic::Ordering::Relaxed),
-                (*control_block_ptr).dropped_frames.load(std::sync::atomic::Ordering::Relaxed)
+                (*control_block_ptr)
+                    .total_frames_written
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                (*control_block_ptr)
+                    .frame_count
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                (*control_block_ptr)
+                    .dropped_frames
+                    .load(std::sync::atomic::Ordering::Relaxed),
             )
         };
 
@@ -541,9 +607,7 @@ unsafe fn convert_bgra_to_rgb_simd(data: &[u8], width: usize, height: usize) -> 
         let stride = width * 4; // 4 bytes per pixel for BGRA
 
         // SIMD shuffle mask for BGRA -> RGBA conversion
-        let shuffle_mask = _mm_set_epi8(
-            15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2
-        );
+        let shuffle_mask = _mm_set_epi8(15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2);
 
         for y in 0..height {
             let row_offset = y * stride;
@@ -636,7 +700,9 @@ fn convert_yuv_to_rgb(data: &[u8], width: usize, height: usize) -> Vec<Color32> 
     // Check if we can use SIMD
     #[cfg(target_arch = "x86_64")]
     if is_x86_feature_detected!("avx2") && width >= 16 {
-        unsafe { return convert_yuv_to_rgb_simd_avx2(data, width, height); }
+        unsafe {
+            return convert_yuv_to_rgb_simd_avx2(data, width, height);
+        }
     }
 
     // Fallback scalar implementation
@@ -754,11 +820,18 @@ unsafe fn convert_yuv_to_rgb_simd_avx2(data: &[u8], width: usize, height: usize)
 }
 
 // High-performance BGRA to RGB conversion optimized for medical imaging (scalar implementation)
-fn convert_bgr_to_rgb(data: &[u8], width: usize, height: usize, bytes_per_pixel: usize) -> Vec<Color32> {
+fn convert_bgr_to_rgb(
+    data: &[u8],
+    width: usize,
+    height: usize,
+    bytes_per_pixel: usize,
+) -> Vec<Color32> {
     // Use SIMD for BGRA format when available
     #[cfg(target_arch = "x86_64")]
     if bytes_per_pixel == 4 && is_simd_supported() && width * height > 1000 {
-        unsafe { return convert_bgra_to_rgb_simd(data, width, height); }
+        unsafe {
+            return convert_bgra_to_rgb_simd(data, width, height);
+        }
     }
 
     // Pre-allocate with capacity to avoid reallocation
@@ -799,18 +872,24 @@ fn convert_frame_to_rgb(
 ) -> Vec<Color32> {
     // Direct SIMD dispatch for known formats
     match format_code {
-        0x02 => { // BGRA format
+        0x02 => {
+            // BGRA format
             #[cfg(target_arch = "x86_64")]
             if is_simd_supported() && bytes_per_pixel == 4 {
-                unsafe { return convert_bgra_to_rgb_simd(data, frame_width, frame_height); }
+                unsafe {
+                    return convert_bgra_to_rgb_simd(data, frame_width, frame_height);
+                }
             }
             // Otherwise fall back to scalar
             convert_bgr_to_rgb(data, frame_width, frame_height, bytes_per_pixel)
         }
-        0x01 => { // YUV format
+        0x01 => {
+            // YUV format
             #[cfg(target_arch = "x86_64")]
             if is_x86_feature_detected!("avx2") {
-                unsafe { return convert_yuv_to_rgb_simd_avx2(data, frame_width, frame_height); }
+                unsafe {
+                    return convert_yuv_to_rgb_simd_avx2(data, frame_width, frame_height);
+                }
             }
             // Otherwise fall back to scalar
             convert_yuv_to_rgb(data, frame_width, frame_height)
@@ -849,20 +928,82 @@ struct EchoViewer {
     reconnect_delay: Duration,
     frame_header: Option<FrameHeader>,
     verbose: bool,
-
-    // New fields for optimized texture handling
     gpu_buffer: Vec<u8>,
     process_time_us: u64,
     texture_time_us: u64,
+    // UI
+    show_info_panel: bool,
+    show_tools_panel: bool,
+    brightness: f32,
+    contrast: f32,
+    zoom_level: f32,
+    region_of_interest: Option<Rect>,
+    roi_active: bool,
+    roi_start: Option<Pos2>,
+    roi_end: Option<Pos2>,
+    selected_tool: Tool,
+    measurements: Vec<Measurement>,
+    patient_info: PatientInfo,
+    theme: Theme,
+    show_grid: bool,
+    show_rulers: bool,
+    annotation_text: String,
+    annotations: Vec<Annotation>,
+}
+
+// Enums and structs for UI state
+#[derive(PartialEq)]
+enum Tool {
+    View,
+    Zoom,
+    Pan,
+    ROI,
+    Measure,
+    Annotate,
+}
+
+enum Theme {
+    Light,
+    Dark,
+    HighContrast,
+}
+
+struct Measurement {
+    start: Pos2,
+    end: Pos2,
+    label: String,
+}
+
+struct Annotation {
+    position: Pos2,
+    text: String,
+}
+
+struct PatientInfo {
+    id: String,
+    name: String,
+    dob: String,
+    study_date: String,
+    modality: String,
+}
+
+impl Default for PatientInfo {
+    fn default() -> Self {
+        Self {
+            id: "ID12345".to_string(),
+            name: "[Patient Name]".to_string(),
+            dob: "YYYY-MM-DD".to_string(),
+            study_date: "2025-05-20".to_string(),
+            modality: "Echography".to_string(),
+        }
+    }
 }
 
 impl EchoViewer {
     fn new(args: Args) -> Self {
         // Try to connect to shared memory
         let shm_reader = match SharedMemoryReader::new(&args.shm_name, args.verbose) {
-            Ok(reader) => {
-                Arc::new(Mutex::new(reader))
-            },
+            Ok(reader) => Arc::new(Mutex::new(reader)),
             Err(e) => {
                 println!("Failed to connect to shared memory: {}", e);
                 Arc::new(Mutex::new(SharedMemoryReader {
@@ -893,7 +1034,7 @@ impl EchoViewer {
                 libc::pthread_setaffinity_np(
                     libc::pthread_self(),
                     std::mem::size_of::<libc::cpu_set_t>(),
-                    &cpu_set
+                    &cpu_set,
                 );
 
                 println!("Application pinned to CPU core {}", args.cpu_core);
@@ -905,11 +1046,8 @@ impl EchoViewer {
             unsafe {
                 let mut sched_param: libc::sched_param = std::mem::zeroed();
                 sched_param.sched_priority = 90; // High priority
-                let result = libc::pthread_setschedparam(
-                    libc::pthread_self(),
-                    libc::SCHED_RR,
-                    &sched_param
-                );
+                let result =
+                    libc::pthread_setschedparam(libc::pthread_self(), libc::SCHED_RR, &sched_param);
 
                 if result == 0 {
                     println!("Thread priority set to high (SCHED_RR, 90)");
@@ -947,7 +1085,105 @@ impl EchoViewer {
             gpu_buffer: Vec::new(),
             process_time_us: 0,
             texture_time_us: 0,
+            // UI
+            show_info_panel: true,
+            show_tools_panel: true,
+            brightness: 0.0,
+            contrast: 0.0,
+            zoom_level: 1.0,
+            region_of_interest: None,
+            roi_active: false,
+            roi_start: None,
+            roi_end: None,
+            selected_tool: Tool::View,
+            measurements: Vec::new(),
+            patient_info: PatientInfo::default(),
+            theme: Theme::Dark,
+            show_grid: false,
+            show_rulers: true,
+            annotation_text: String::new(),
+            annotations: Vec::new(),
         }
+    }
+
+    // Configure UI styles at startup
+    fn configure_styles(&self, ctx: &egui::Context) {
+        let mut style = (*ctx.style()).clone();
+
+        // Configure text styles
+        style.text_styles = [
+            (
+                TextStyle::Heading,
+                FontId::new(24.0, egui::FontFamily::Proportional),
+            ),
+            (
+                TextStyle::Body,
+                FontId::new(16.0, egui::FontFamily::Proportional),
+            ),
+            (
+                TextStyle::Monospace,
+                FontId::new(14.0, egui::FontFamily::Monospace),
+            ),
+            (
+                TextStyle::Button,
+                FontId::new(16.0, egui::FontFamily::Proportional),
+            ),
+            (
+                TextStyle::Small,
+                FontId::new(12.0, egui::FontFamily::Proportional),
+            ),
+        ]
+        .into();
+
+        // Set colors for a professional medical application
+        match self.theme {
+            Theme::Dark => {
+                // Dark theme
+                style.visuals.dark_mode = true;
+                style.visuals.panel_fill = Color32::from_rgb(22, 25, 37); // Dark blue-gray
+                style.visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(30, 34, 46);
+                style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 44, 56);
+                style.visuals.widgets.active.bg_fill = Color32::from_rgb(48, 107, 185); // Medical blue
+                style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(58, 117, 195);
+                style.visuals.window_fill = Color32::from_rgb(22, 25, 37);
+                style.visuals.window_stroke = Stroke::new(1.0, Color32::from_rgb(40, 44, 56));
+            }
+            Theme::Light => {
+                // Light theme
+                style.visuals.dark_mode = false;
+                style.visuals.panel_fill = Color32::from_rgb(240, 244, 248); // Light blue-gray
+                style.visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(230, 236, 242);
+                style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(220, 228, 236);
+                style.visuals.widgets.active.bg_fill = Color32::from_rgb(70, 130, 210);
+                style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(90, 150, 230);
+                style.visuals.window_fill = Color32::from_rgb(240, 244, 248);
+                style.visuals.window_stroke = Stroke::new(1.0, Color32::from_rgb(200, 210, 220));
+            }
+            Theme::HighContrast => {
+                // High contrast theme
+                style.visuals.dark_mode = true;
+                style.visuals.panel_fill = Color32::BLACK;
+                style.visuals.widgets.noninteractive.bg_fill = Color32::BLACK;
+                style.visuals.widgets.inactive.bg_fill = Color32::DARK_GRAY;
+                style.visuals.widgets.active.bg_fill = Color32::WHITE;
+                style.visuals.widgets.hovered.bg_fill = Color32::LIGHT_GRAY;
+                style.visuals.window_fill = Color32::BLACK;
+                style.visuals.window_stroke = Stroke::new(2.0, Color32::WHITE);
+            }
+        }
+
+        // Add button rounding
+        style.visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(4);
+        style.visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(4);
+        style.visuals.widgets.active.corner_radius = egui::CornerRadius::same(4);
+        style.visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(4);
+
+        // Set window rounding
+        style.visuals.window_corner_radius = egui::CornerRadius::same(6);
+        style.visuals.popup_shadow.spread = 8;
+
+        // Apply the style
+        ctx.set_style(style);
     }
 
     // Optimized method to update or create texture with minimal allocations
@@ -980,9 +1216,9 @@ impl EchoViewer {
             "frame_image",
             egui::ColorImage::from_rgba_unmultiplied(
                 [self.frame_width, self.frame_height],
-                &self.gpu_buffer
+                &self.gpu_buffer,
             ),
-            egui::TextureOptions::LINEAR
+            egui::TextureOptions::LINEAR,
         );
 
         // Record texture processing time
@@ -1062,36 +1298,56 @@ impl EchoViewer {
 
                 // Optimized format dispatch with SIMD when available
                 self.frame_data = match header.format_code {
-                    0x02 => { // BGRA format from Black Magic
+                    0x02 => {
+                        // BGRA format from Black Magic
                         #[cfg(target_arch = "x86_64")]
                         if is_simd_supported() && header.bytes_per_pixel == 4 {
-                            unsafe { convert_bgra_to_rgb_simd(data, self.frame_width, self.frame_height) }
+                            unsafe {
+                                convert_bgra_to_rgb_simd(data, self.frame_width, self.frame_height)
+                            }
                         } else {
-                            convert_bgr_to_rgb(data, self.frame_width, self.frame_height, header.bytes_per_pixel as usize)
+                            convert_bgr_to_rgb(
+                                data,
+                                self.frame_width,
+                                self.frame_height,
+                                header.bytes_per_pixel as usize,
+                            )
                         }
 
                         #[cfg(not(target_arch = "x86_64"))]
-                        convert_bgr_to_rgb(data, self.frame_width, self.frame_height, header.bytes_per_pixel as usize)
-                    },
-                    0x01 => { // YUV format
+                        convert_bgr_to_rgb(
+                            data,
+                            self.frame_width,
+                            self.frame_height,
+                            header.bytes_per_pixel as usize,
+                        )
+                    }
+                    0x01 => {
+                        // YUV format
                         #[cfg(target_arch = "x86_64")]
                         if is_x86_feature_detected!("avx2") {
-                            unsafe { convert_yuv_to_rgb_simd_avx2(data, self.frame_width, self.frame_height) }
+                            unsafe {
+                                convert_yuv_to_rgb_simd_avx2(
+                                    data,
+                                    self.frame_width,
+                                    self.frame_height,
+                                )
+                            }
                         } else {
                             convert_yuv_to_rgb(data, self.frame_width, self.frame_height)
                         }
 
                         #[cfg(not(target_arch = "x86_64"))]
                         convert_yuv_to_rgb(data, self.frame_width, self.frame_height)
-                    },
+                    }
                     _ => convert_frame_to_rgb(
                         data,
                         self.frame_width,
                         self.frame_height,
                         header.bytes_per_pixel as usize,
                         header.format_code,
-                        &self.format
-                    )
+                        &self.format,
+                    ),
                 };
 
                 // Update format string
@@ -1103,7 +1359,8 @@ impl EchoViewer {
 
                 // Update FPS counter every 500ms for more stable readings
                 if self.last_fps_update.elapsed() >= Duration::from_millis(500) {
-                    self.fps = self.frames_received as f64 / self.last_fps_update.elapsed().as_secs_f64();
+                    self.fps =
+                        self.frames_received as f64 / self.last_fps_update.elapsed().as_secs_f64();
                     self.frames_received = 0;
                     self.last_fps_update = now;
 
@@ -1118,10 +1375,10 @@ impl EchoViewer {
 
                 // Record frame processing time
                 self.process_time_us = process_start.elapsed().as_micros() as u64;
-            },
+            }
             Ok(None) => {
                 // No new frames, but still connected
-            },
+            }
             Err(e) => {
                 // Error reading frame - likely disconnected
                 self.connection_status = format!("Connection error: {}", e);
@@ -1131,86 +1388,332 @@ impl EchoViewer {
             }
         }
     }
-}
 
-impl eframe::App for EchoViewer {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Request a repaint for the next frame
-        ctx.request_repaint();
+    fn draw_top_panel(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("header_panel")
+            .height_range(48.0..=48.0)
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    // Logo/Application name
+                    ui.add_space(8.0);
+                    ui.heading("Medical Echography Viewer");
 
-        // Check connection and update frame
-        self.check_connection();
-        self.update_frame();
+                    // Spacer
+                    ui.add_space(32.0);
 
-        // Top panel for status information
-        egui::TopBottomPanel::top("status_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                // Connection status with color indicator
-                let status_color = if self.connection_status.starts_with("Connected") {
-                    Color32::from_rgb(50, 200, 70) // Green for connected
-                } else {
-                    Color32::from_rgb(220, 50, 50) // Red for disconnected
-                };
+                    // Patient information
+                    ui.group(|ui| {
+                        ui.set_width(400.0);
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label(RichText::new("Patient:").strong().size(12.0));
+                                ui.label(RichText::new("ID:").strong().size(12.0));
+                            });
 
-                ui.label(RichText::new("Status:").strong());
-                ui.label(RichText::new(&self.connection_status).color(status_color));
+                            ui.vertical(|ui| {
+                                ui.label(RichText::new(&self.patient_info.name).size(12.0));
+                                ui.label(RichText::new(&self.patient_info.id).size(12.0));
+                            });
 
-                ui.separator();
+                            ui.add_space(20.0);
 
-                // Frame info if we have a valid frame
-                if let Some(header) = self.frame_header {
-                    ui.label(RichText::new(format!("Resolution: {}x{}", header.width, header.height)).strong());
+                            ui.vertical(|ui| {
+                                ui.label(RichText::new("DOB:").strong().size(12.0));
+                                ui.label(RichText::new("Study:").strong().size(12.0));
+                            });
+
+                            ui.vertical(|ui| {
+                                ui.label(RichText::new(&self.patient_info.dob).size(12.0));
+                                ui.label(RichText::new(&self.patient_info.study_date).size(12.0));
+                            });
+                        });
+                    });
+
+                    // Flexible space
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add_space(8.0);
+
+                        // Theme selection
+                        let theme_button_text = match self.theme {
+                            Theme::Dark => "🌙 Dark",
+                            Theme::Light => "☀️ Light",
+                            Theme::HighContrast => "🔍 High Contrast",
+                        };
+
+                        if ui.button(theme_button_text).clicked() {
+                            // Cycle through themes
+                            self.theme = match self.theme {
+                                Theme::Dark => Theme::Light,
+                                Theme::Light => Theme::HighContrast,
+                                Theme::HighContrast => Theme::Dark,
+                            };
+                        }
+
+                        // Connection status with a professional look
+                        let (status_text, status_color) =
+                            if self.connection_status.starts_with("Connected") {
+                                ("Connected", Color32::from_rgb(80, 210, 130)) // Softer green
+                            } else {
+                                ("Disconnected", Color32::from_rgb(230, 90, 90)) // Softer red
+                            };
+
+                        ui.horizontal(|ui| {
+                            ui.label("Status:");
+                            ui.label(RichText::new(status_text).color(status_color).strong());
+                        });
+
+                        // Reconnect button with icon
+                        if ui.button("🔄 Reconnect").clicked() {
+                            self.try_connect();
+                        }
+                    });
+                });
+            });
+    }
+
+    fn draw_tools_panel(&mut self, ctx: &egui::Context) {
+        egui::SidePanel::left("tools_panel")
+            .resizable(true)
+            .default_width(48.0)
+            .width_range(48.0..=200.0)
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(8.0);
+
+                    // Tool selection
+                    ui.heading("Tools");
+                    ui.add_space(8.0);
+
+                    // Tool buttons
+                    ui.selectable_value(&mut self.selected_tool, Tool::View, "👁️ View");
+                    ui.selectable_value(&mut self.selected_tool, Tool::Zoom, "🔍 Zoom");
+                    ui.selectable_value(&mut self.selected_tool, Tool::Pan, "✋ Pan");
+                    ui.selectable_value(&mut self.selected_tool, Tool::ROI, "⬚ ROI");
+                    ui.selectable_value(&mut self.selected_tool, Tool::Measure, "📏 Measure");
+                    ui.selectable_value(&mut self.selected_tool, Tool::Annotate, "✏️ Annotate");
+
                     ui.separator();
-                    ui.label(RichText::new(format!("Format: {}", self.format)).strong());
-                    ui.separator();
-                    ui.label(RichText::new(format!("FPS: {:.1}", self.fps)).strong());
-                    ui.separator();
-                    ui.label(RichText::new(format!("Latency: {:.3} ms", self.latency_ms)).strong());
-                }
 
-                // Force reconnect button
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Reconnect").clicked() {
-                        self.try_connect();
+                    // Display options
+                    ui.heading("Display");
+                    ui.add_space(8.0);
+
+                    ui.checkbox(&mut self.show_grid, "Grid");
+                    ui.checkbox(&mut self.show_rulers, "Rulers");
+
+                    ui.separator();
+
+                    // Image adjustments
+                    ui.heading("Adjustments");
+                    ui.add_space(8.0);
+
+                    ui.label("Brightness:");
+                    ui.add(egui::Slider::new(&mut self.brightness, -1.0..=1.0).text(""));
+
+                    ui.label("Contrast:");
+                    ui.add(egui::Slider::new(&mut self.contrast, -1.0..=1.0).text(""));
+
+                    ui.separator();
+
+                    // Bottom part - expand to show more information
+                    if ui.button("ℹ️ Frame Info").clicked() {
+                        self.show_info_panel = !self.show_info_panel;
+                    }
+
+                    // Annotation text input when annotation tool is selected
+                    if matches!(self.selected_tool, Tool::Annotate) {
+                        ui.separator();
+                        ui.label("Annotation Text:");
+                        ui.text_edit_singleline(&mut self.annotation_text);
                     }
                 });
             });
-        });
+    }
 
-        // Bottom panel for additional stats
-        egui::TopBottomPanel::bottom("stats_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if let Some(header) = self.frame_header {
-                    ui.label(RichText::new(format!("Frame ID: {}", header.frame_id)).monospace());
-                    ui.separator();
-                    ui.label(RichText::new(format!("Sequence: {}", header.sequence_number)).monospace());
-                    ui.separator();
-                    ui.label(RichText::new(format!("Total Frames: {}", self.total_frames)).monospace());
-                    ui.separator();
-                    ui.label(RichText::new(format!("Process: {:.3} ms",
-                                                   self.process_time_us as f64 / 1000.0)).monospace());
-                    ui.separator();
-                    ui.label(RichText::new(format!("Texture: {:.3} ms",
-                                                   self.texture_time_us as f64 / 1000.0)).monospace());
+    fn draw_info_panel(&mut self, ctx: &egui::Context) {
+        egui::SidePanel::right("info_panel")
+            .resizable(true)
+            .default_width(250.0)
+            .width_range(200.0..=400.0)
+            .show(ctx, |ui| {
+                ui.add_space(8.0);
+                ui.heading("Frame Information");
+                ui.add_space(8.0);
+
+                // Frame information with a professional layout
+                egui::Grid::new("frame_info_grid")
+                    .num_columns(2)
+                    .spacing([10.0, 6.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        if let Some(header) = self.frame_header {
+                            // Frame data
+                            ui.label(RichText::new("Resolution:").strong());
+                            ui.label(format!("{}×{}", header.width, header.height));
+                            ui.end_row();
+
+                            ui.label(RichText::new("Format:").strong());
+                            ui.label(&self.format);
+                            ui.end_row();
+
+                            ui.label(RichText::new("Frame ID:").strong());
+                            ui.label(format!("{}", header.frame_id));
+                            ui.end_row();
+
+                            ui.label(RichText::new("Sequence:").strong());
+                            ui.label(format!("{}", header.sequence_number));
+                            ui.end_row();
+
+                            // Performance metrics
+                            ui.label(RichText::new("FPS:").strong());
+                            ui.label(format!("{:.1}", self.fps));
+                            ui.end_row();
+
+                            ui.label(RichText::new("Latency:").strong());
+                            ui.label(format!("{:.2} ms", self.latency_ms));
+                            ui.end_row();
+
+                            ui.label(RichText::new("Process Time:").strong());
+                            ui.label(format!("{:.2} ms", self.process_time_us as f64 / 1000.0));
+                            ui.end_row();
+
+                            ui.label(RichText::new("Texture Time:").strong());
+                            ui.label(format!("{:.2} ms", self.texture_time_us as f64 / 1000.0));
+                            ui.end_row();
+
+                            ui.label(RichText::new("Total Frames:").strong());
+                            ui.label(format!("{}", self.total_frames));
+                            ui.end_row();
+                        } else {
+                            ui.label("No frame data available");
+                            ui.end_row();
+                        }
+                    });
+
+                ui.add_space(20.0);
+
+                // Measurements section
+                ui.heading("Measurements");
+                ui.add_space(8.0);
+
+                if self.measurements.is_empty() {
+                    ui.label("No measurements recorded");
+                } else {
+                    egui::Grid::new("measurements_grid")
+                        .num_columns(3)
+                        .spacing([10.0, 6.0])
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.label(RichText::new("Label").strong());
+                            ui.label(RichText::new("Length").strong());
+                            ui.label(RichText::new("Action").strong());
+                            ui.end_row();
+
+                            for (i, measurement) in self.measurements.iter().enumerate() {
+                                ui.label(&measurement.label);
+
+                                // Calculate pixel distance
+                                let dx = measurement.end.x - measurement.start.x;
+                                let dy = measurement.end.y - measurement.start.y;
+                                let distance = (dx * dx + dy * dy).sqrt();
+                                ui.label(format!("{:.1} px", distance));
+
+                                if ui.button("🗑").clicked() {
+                                    self.measurements.remove(i);
+                                    break;
+                                }
+                                ui.end_row();
+                            }
+                        });
                 }
 
-                // Toggle catch-up mode
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.checkbox(&mut self.catch_up, "Low Latency Mode");
+                ui.add_space(20.0);
+
+                // Annotations section
+                ui.heading("Annotations");
+                ui.add_space(8.0);
+
+                if self.annotations.is_empty() {
+                    ui.label("No annotations added");
+                } else {
+                    egui::Grid::new("annotations_grid")
+                        .num_columns(3)
+                        .spacing([10.0, 6.0])
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.label(RichText::new("Text").strong());
+                            ui.label(RichText::new("Position").strong());
+                            ui.label(RichText::new("Action").strong());
+                            ui.end_row();
+
+                            for (i, annotation) in self.annotations.iter().enumerate() {
+                                let text = if annotation.text.len() > 15 {
+                                    format!("{}...", &annotation.text[0..12])
+                                } else {
+                                    annotation.text.clone()
+                                };
+
+                                ui.label(text);
+                                ui.label(format!(
+                                    "({:.0},{:.0})",
+                                    annotation.position.x, annotation.position.y
+                                ));
+
+                                if ui.button("🗑").clicked() {
+                                    self.annotations.remove(i);
+                                    break;
+                                }
+                                ui.end_row();
+                            }
+                        });
+                }
+
+                ui.add_space(ui.available_height() - 30.0);
+
+                // Help text at bottom
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                    ui.label(RichText::new("Use mouse wheel to zoom").size(10.0));
+                    ui.label(RichText::new("Drag to pan when zoomed").size(10.0));
                 });
             });
-        });
+    }
 
-        // Central panel for the image - using optimized texture handling
+    fn draw_central_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             // If we're not connected, show a message
             if !self.shm_reader.lock().unwrap().is_connected() {
                 ui.centered_and_justified(|ui| {
-                    ui.add(egui::Label::new(
-                        RichText::new("Waiting for Connection...")
-                            .color(Color32::LIGHT_GRAY)
-                            .size(24.0)
-                    ));
+                    // Professional-looking "no connection" message
+                    let text_color = match self.theme {
+                        Theme::Dark => Color32::from_rgb(200, 200, 210),
+                        Theme::Light => Color32::from_rgb(80, 80, 100),
+                        Theme::HighContrast => Color32::WHITE,
+                    };
+
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(50.0);
+                        ui.add(egui::Label::new(
+                            RichText::new("🔄").color(text_color).size(36.0),
+                        ));
+                        ui.add_space(20.0);
+                        ui.add(egui::Label::new(
+                            RichText::new("Waiting for Connection...")
+                                .color(text_color)
+                                .size(24.0),
+                        ));
+                        ui.add_space(10.0);
+                        ui.add(egui::Label::new(
+                            RichText::new("Attempting to connect to ultrasound device")
+                                .color(text_color)
+                                .size(16.0),
+                        ));
+                        ui.add_space(20.0);
+
+                        // Reconnect button
+                        if ui.button("Reconnect Now").clicked() {
+                            self.try_connect();
+                        }
+                    });
                 });
                 return;
             }
@@ -1224,35 +1727,598 @@ impl eframe::App for EchoViewer {
                 let image_aspect_ratio = self.frame_width as f32 / self.frame_height as f32;
                 let panel_aspect_ratio = available_size.x / available_size.y;
 
-                let display_size = if image_aspect_ratio > panel_aspect_ratio {
+                let mut display_size = if image_aspect_ratio > panel_aspect_ratio {
                     // Width constrained
-                    Vec2::new(
-                        available_size.x,
-                        available_size.x / image_aspect_ratio
-                    )
+                    Vec2::new(available_size.x, available_size.x / image_aspect_ratio)
                 } else {
                     // Height constrained
-                    Vec2::new(
-                        available_size.y * image_aspect_ratio,
-                        available_size.y
-                    )
+                    Vec2::new(available_size.y * image_aspect_ratio, available_size.y)
                 };
 
-                // Display the image centered
-                ui.centered_and_justified(|ui| {
-                    ui.image((texture_id, display_size));
-                });
+                // Apply zoom level
+                display_size.x *= self.zoom_level;
+                display_size.y *= self.zoom_level;
+
+                // Get the response for interaction
+                let image_response = ui
+                    .centered_and_justified(|ui| ui.image((texture_id, display_size)))
+                    .inner;
+
+                // Draw rulers if enabled
+                if self.show_rulers {
+                    self.draw_rulers(ui, image_response.rect);
+                }
+
+                // Draw grid if enabled
+                if self.show_grid {
+                    self.draw_grid(ui, image_response.rect);
+                }
+
+                // Handle interactions based on selected tool
+                if image_response.hovered() {
+                    let pointer_pos = ui.input(|i| i.pointer.hover_pos());
+
+                    if let Some(pos) = pointer_pos {
+                        // Handle different tools
+                        match self.selected_tool {
+                            Tool::ROI => self.handle_roi_tool(ui, image_response, pos),
+                            Tool::Measure => self.handle_measure_tool(ui, image_response, pos),
+                            Tool::Annotate => self.handle_annotate_tool(ui, image_response, pos),
+                            // Other tools handled separately
+                            _ => {}
+                        }
+                    }
+                }
+
+                // Draw existing measurements
+                for measurement in &self.measurements {
+                    // Draw measurement line
+                    let stroke = Stroke::new(2.0, Color32::from_rgb(255, 220, 0));
+                    ui.painter()
+                        .line_segment([measurement.start, measurement.end], stroke);
+
+                    // Draw measurement label
+                    let mid_point = Pos2::new(
+                        (measurement.start.x + measurement.end.x) / 2.0,
+                        (measurement.start.y + measurement.end.y) / 2.0 - 15.0,
+                    );
+
+                    // Add a background for the text
+                    let text_size = egui::Vec2::new(60.0, 20.0);
+                    let text_rect = Rect::from_center_size(mid_point, text_size);
+                    ui.painter().rect_filled(
+                        text_rect,
+                        egui::CornerRadius::same(3),
+                        Color32::from_rgba_premultiplied(0, 0, 0, 180),
+                    );
+
+                    // Calculate distance in pixels
+                    let dx = measurement.end.x - measurement.start.x;
+                    let dy = measurement.end.y - measurement.start.y;
+                    let distance = (dx * dx + dy * dy).sqrt();
+
+                    ui.painter().text(
+                        mid_point,
+                        egui::Align2::CENTER_CENTER,
+                        format!("{}: {:.1}px", measurement.label, distance),
+                        FontId::proportional(12.0),
+                        Color32::WHITE,
+                    );
+                }
+
+                // Draw annotations
+                for annotation in &self.annotations {
+                    // Background for annotation
+                    let text_size = ui
+                        .fonts(|f| {
+                            f.layout_no_wrap(
+                                annotation.text.clone(),
+                                FontId::proportional(12.0),
+                                Color32::WHITE,
+                            )
+                        })
+                        .rect
+                        .size();
+
+                    let text_rect =
+                        Rect::from_min_size(annotation.position, text_size + egui::vec2(10.0, 6.0));
+
+                    ui.painter().rect_filled(
+                        text_rect,
+                        egui::CornerRadius::same(3),
+                        Color32::from_rgba_premultiplied(30, 30, 120, 220),
+                    );
+
+                    // Draw text
+                    ui.painter().text(
+                        annotation.position + egui::vec2(5.0, 3.0),
+                        egui::Align2::LEFT_TOP,
+                        &annotation.text,
+                        FontId::proportional(12.0),
+                        Color32::WHITE,
+                    );
+                }
+
+                // Draw active ROI if any
+                if let Some(roi) = self.region_of_interest {
+                    // Draw ROI rectangle
+                    ui.painter().rect_stroke(
+                        roi,
+                        egui::CornerRadius::same(0),
+                        Stroke::new(2.0, Color32::from_rgb(255, 200, 0)),
+                        StrokeKind::Inside,
+                    );
+
+                    // Draw ROI dimensions text
+                    let text = format!("ROI: {}x{}", roi.width() as i32, roi.height() as i32);
+                    let text_pos = Pos2::new(roi.min.x, roi.min.y - 20.0);
+
+                    // Background for text
+                    let text_size = ui
+                        .fonts(|f| {
+                            f.layout_no_wrap(
+                                text.clone(),
+                                FontId::proportional(12.0),
+                                Color32::WHITE,
+                            )
+                        })
+                        .rect
+                        .size();
+
+                    let text_rect =
+                        Rect::from_min_size(text_pos, text_size + egui::vec2(10.0, 6.0));
+
+                    ui.painter().rect_filled(
+                        text_rect,
+                        egui::CornerRadius::same(3),
+                        Color32::from_rgba_premultiplied(0, 0, 0, 180),
+                    );
+
+                    // Draw text
+                    ui.painter().text(
+                        text_pos + egui::vec2(5.0, 3.0),
+                        egui::Align2::LEFT_TOP,
+                        text,
+                        FontId::proportional(12.0),
+                        Color32::WHITE,
+                    );
+                }
             } else {
                 // No valid frame yet
                 ui.centered_and_justified(|ui| {
-                    ui.add(egui::Label::new(
-                        RichText::new("Waiting for Frames...")
-                            .color(Color32::LIGHT_GRAY)
-                            .size(24.0)
-                    ));
+                    let text_color = match self.theme {
+                        Theme::Dark => Color32::from_rgb(200, 200, 210),
+                        Theme::Light => Color32::from_rgb(80, 80, 100),
+                        Theme::HighContrast => Color32::WHITE,
+                    };
+
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(50.0);
+                        ui.add(egui::Label::new(
+                            RichText::new("🎬").color(text_color).size(36.0),
+                        ));
+                        ui.add_space(20.0);
+                        ui.add(egui::Label::new(
+                            RichText::new("Waiting for Frames...")
+                                .color(text_color)
+                                .size(24.0),
+                        ));
+                        ui.add_space(10.0);
+                        ui.add(egui::Label::new(
+                            RichText::new("Connected to device, awaiting video stream")
+                                .color(text_color)
+                                .size(16.0),
+                        ));
+                    });
                 });
             }
         });
+    }
+
+    fn draw_bottom_panel(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::bottom("bottom_panel")
+            .height_range(40.0..=40.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+
+                    // Zoom controls
+                    ui.label("Zoom:");
+                    if ui.button("-").clicked() {
+                        self.zoom_level = (self.zoom_level - 0.1).max(0.5);
+                    }
+
+                    ui.label(format!("{:.1}×", self.zoom_level));
+
+                    if ui.button("+").clicked() {
+                        self.zoom_level = (self.zoom_level + 0.1).min(4.0);
+                    }
+
+                    ui.separator();
+
+                    // Frame information
+                    if let Some(header) = self.frame_header {
+                        ui.label(format!("Frame: {}", header.frame_id));
+                        ui.separator();
+                        ui.label(format!("FPS: {:.1}", self.fps));
+                        ui.separator();
+                        ui.label(format!("Latency: {:.1} ms", self.latency_ms));
+                    }
+
+                    // Right-aligned controls
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add_space(8.0);
+                        ui.checkbox(&mut self.catch_up, "Low Latency Mode");
+
+                        // Mode indicator (static text for this demo)
+                        ui.separator();
+                        ui.label(RichText::new("Mode: B-Mode").strong());
+                        ui.separator();
+                        ui.label(RichText::new("Depth: 10 cm").strong());
+                    });
+                });
+            });
+    }
+
+    // Helper methods for tool interactions
+    fn handle_roi_tool(
+        &mut self,
+        ui: &mut egui::Ui,
+        image_response: egui::Response,
+        cursor_pos: Pos2,
+    ) {
+        // ROI tool implementation
+        if ui.input(|i| i.pointer.primary_pressed()) {
+            self.roi_active = true;
+            self.roi_start = Some(cursor_pos);
+            self.roi_end = Some(cursor_pos);
+        }
+
+        if self.roi_active {
+            if ui.input(|i| i.pointer.primary_down()) {
+                self.roi_end = Some(cursor_pos);
+
+                // Update region of interest rectangle
+                if let (Some(start), Some(end)) = (self.roi_start, self.roi_end) {
+                    let min_x = start.x.min(end.x);
+                    let min_y = start.y.min(end.y);
+                    let max_x = start.x.max(end.x);
+                    let max_y = start.y.max(end.y);
+
+                    self.region_of_interest = Some(Rect::from_min_max(
+                        Pos2::new(min_x, min_y),
+                        Pos2::new(max_x, max_y),
+                    ));
+                }
+            }
+
+            if ui.input(|i| i.pointer.primary_released()) {
+                self.roi_active = false;
+                // Keep the ROI rectangle
+            }
+        }
+
+        // Preview the ROI while drawing
+        if self.roi_active {
+            if let (Some(start), Some(end)) = (self.roi_start, self.roi_end) {
+                let rect = Rect::from_two_pos(start, end);
+                ui.painter().rect_stroke(
+                    rect,
+                    egui::CornerRadius::same(0),
+                    Stroke::new(1.0, Color32::from_rgb(255, 200, 0)),
+                    StrokeKind::Inside,
+                );
+            }
+        }
+    }
+
+    fn handle_measure_tool(
+        &mut self,
+        ui: &mut egui::Ui,
+        image_response: egui::Response,
+        cursor_pos: Pos2,
+    ) {
+        // Measurement tool implementation
+        static mut MEASURING_ACTIVE: bool = false;
+        static mut MEASURE_START: Option<Pos2> = None;
+
+        unsafe {
+            if ui.input(|i| i.pointer.primary_pressed()) {
+                MEASURING_ACTIVE = true;
+                MEASURE_START = Some(cursor_pos);
+            }
+
+            if MEASURING_ACTIVE {
+                if let Some(start) = MEASURE_START {
+                    // Draw the measurement line
+                    ui.painter().line_segment(
+                        [start, cursor_pos],
+                        Stroke::new(2.0, Color32::from_rgb(255, 220, 0)),
+                    );
+
+                    // Show distance while dragging
+                    let dx = cursor_pos.x - start.x;
+                    let dy = cursor_pos.y - start.y;
+                    let distance = (dx * dx + dy * dy).sqrt();
+
+                    let mid_point = Pos2::new(
+                        (start.x + cursor_pos.x) / 2.0,
+                        (start.y + cursor_pos.y) / 2.0 - 15.0,
+                    );
+
+                    // Background
+                    let text = format!("{:.1} px", distance);
+                    let text_size = ui
+                        .fonts(|f| {
+                            f.layout_no_wrap(
+                                text.clone(),
+                                FontId::proportional(12.0),
+                                Color32::WHITE,
+                            )
+                        })
+                        .rect
+                        .size();
+
+                    let text_rect =
+                        Rect::from_center_size(mid_point, text_size + egui::vec2(10.0, 6.0));
+                    ui.painter().rect_filled(
+                        text_rect,
+                        egui::CornerRadius::same(3),
+                        Color32::from_rgba_premultiplied(0, 0, 0, 180),
+                    );
+
+                    // Draw text
+                    ui.painter().text(
+                        mid_point,
+                        egui::Align2::CENTER_CENTER,
+                        text,
+                        FontId::proportional(12.0),
+                        Color32::WHITE,
+                    );
+                }
+
+                if ui.input(|i| i.pointer.primary_released()) {
+                    if let Some(start) = MEASURE_START {
+                        // Finalize measurement
+                        let dx = cursor_pos.x - start.x;
+                        let dy = cursor_pos.y - start.y;
+                        let distance = (dx * dx + dy * dy).sqrt();
+
+                        // Only add if it's a meaningful measurement (not just a click)
+                        if distance > 5.0 {
+                            // Generate a default label
+                            let label = format!("M{}", self.measurements.len() + 1);
+
+                            self.measurements.push(Measurement {
+                                start,
+                                end: cursor_pos,
+                                label,
+                            });
+                        }
+                    }
+
+                    MEASURING_ACTIVE = false;
+                    MEASURE_START = None;
+                }
+            }
+        }
+    }
+
+    fn handle_annotate_tool(
+        &mut self,
+        ui: &mut egui::Ui,
+        image_response: egui::Response,
+        cursor_pos: Pos2,
+    ) {
+        // Annotation tool implementation
+        if ui.input(|i| i.pointer.primary_clicked()) {
+            if !self.annotation_text.is_empty() {
+                self.annotations.push(Annotation {
+                    position: cursor_pos,
+                    text: self.annotation_text.clone(),
+                });
+
+                // Clear the text input after adding
+                self.annotation_text.clear();
+            } else {
+                // If no text is entered, show a small popup
+                let text_pos = cursor_pos + egui::vec2(10.0, 10.0);
+                let text = "Enter annotation text in sidebar";
+
+                // Background
+                let text_size = ui
+                    .fonts(|f| {
+                        f.layout_no_wrap(
+                            text.parse().unwrap(),
+                            FontId::proportional(12.0),
+                            Color32::WHITE,
+                        )
+                    })
+                    .rect
+                    .size();
+
+                let text_rect = Rect::from_min_size(text_pos, text_size + egui::vec2(10.0, 6.0));
+
+                ui.painter().rect_filled(
+                    text_rect,
+                    egui::CornerRadius::same(3),
+                    Color32::from_rgba_premultiplied(40, 40, 40, 220),
+                );
+
+                // Draw text
+                ui.painter().text(
+                    text_pos + egui::vec2(5.0, 3.0),
+                    egui::Align2::LEFT_TOP,
+                    text,
+                    FontId::proportional(12.0),
+                    Color32::WHITE,
+                );
+            }
+        }
+    }
+
+    // Draw rulers around the image
+    fn draw_rulers(&self, ui: &egui::Ui, image_rect: Rect) {
+        let stroke = Stroke::new(1.0, Color32::from_rgba_premultiplied(200, 200, 200, 180));
+        let text_color = Color32::from_rgba_premultiplied(200, 200, 200, 220);
+
+        // Horizontal ruler (top)
+        let ruler_height = 20.0;
+        let ruler_rect = Rect::from_min_max(
+            Pos2::new(image_rect.min.x, image_rect.min.y - ruler_height),
+            Pos2::new(image_rect.max.x, image_rect.min.y),
+        );
+
+        ui.painter().rect_filled(
+            ruler_rect,
+            egui::CornerRadius::same(0),
+            Color32::from_rgba_premultiplied(30, 30, 30, 180),
+        );
+
+        // Ticks every 50 pixels
+        let tick_interval = 50.0;
+        let mut x = image_rect.min.x;
+        while x <= image_rect.max.x {
+            let tick_height = if (x - image_rect.min.x) % 100.0 < 1.0 {
+                8.0
+            } else {
+                5.0
+            };
+
+            ui.painter().line_segment(
+                [
+                    Pos2::new(x, image_rect.min.y - tick_height),
+                    Pos2::new(x, image_rect.min.y),
+                ],
+                stroke,
+            );
+
+            // Labels at major ticks
+            if (x - image_rect.min.x) % 100.0 < 1.0 {
+                let label = format!("{}", ((x - image_rect.min.x) / self.zoom_level) as i32);
+                ui.painter().text(
+                    Pos2::new(x, image_rect.min.y - 15.0),
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    FontId::proportional(10.0),
+                    text_color,
+                );
+            }
+
+            x += tick_interval;
+        }
+
+        // Vertical ruler (left)
+        let ruler_width = 20.0;
+        let ruler_rect = Rect::from_min_max(
+            Pos2::new(image_rect.min.x - ruler_width, image_rect.min.y),
+            Pos2::new(image_rect.min.x, image_rect.max.y),
+        );
+
+        ui.painter().rect_filled(
+            ruler_rect,
+            egui::CornerRadius::same(0),
+            Color32::from_rgba_premultiplied(30, 30, 30, 180),
+        );
+
+        // Ticks every 50 pixels
+        let mut y = image_rect.min.y;
+        while y <= image_rect.max.y {
+            let tick_width = if (y - image_rect.min.y) % 100.0 < 1.0 {
+                8.0
+            } else {
+                5.0
+            };
+
+            ui.painter().line_segment(
+                [
+                    Pos2::new(image_rect.min.x - tick_width, y),
+                    Pos2::new(image_rect.min.x, y),
+                ],
+                stroke,
+            );
+
+            // Labels at major ticks
+            if (y - image_rect.min.y) % 100.0 < 1.0 {
+                let label = format!("{}", ((y - image_rect.min.y) / self.zoom_level) as i32);
+                ui.painter().text(
+                    Pos2::new(image_rect.min.x - 10.0, y),
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    FontId::proportional(10.0),
+                    text_color,
+                );
+            }
+
+            y += tick_interval;
+        }
+    }
+
+    // Draw grid over the image
+    fn draw_grid(&self, ui: &egui::Ui, image_rect: Rect) {
+        let stroke = Stroke::new(1.0, Color32::from_rgba_premultiplied(150, 150, 150, 100));
+
+        // Grid size
+        let grid_size = 50.0;
+
+        // Vertical lines
+        let mut x = image_rect.min.x + grid_size;
+        while x < image_rect.max.x {
+            ui.painter().line_segment(
+                [
+                    Pos2::new(x, image_rect.min.y),
+                    Pos2::new(x, image_rect.max.y),
+                ],
+                stroke,
+            );
+            x += grid_size;
+        }
+
+        // Horizontal lines
+        let mut y = image_rect.min.y + grid_size;
+        while y < image_rect.max.y {
+            ui.painter().line_segment(
+                [
+                    Pos2::new(image_rect.min.x, y),
+                    Pos2::new(image_rect.max.x, y),
+                ],
+                stroke,
+            );
+            y += grid_size;
+        }
+    }
+}
+
+impl eframe::App for EchoViewer {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Configure styles if first time
+        self.configure_styles(ctx);
+
+        // Request a repaint for the next frame
+        ctx.request_repaint();
+
+        // Check connection and update frame (your existing code)
+        self.check_connection();
+        self.update_frame();
+
+        // Top panel with patient info and application bar
+        self.draw_top_panel(ctx);
+
+        // Left panel with tools
+        if self.show_tools_panel {
+            self.draw_tools_panel(ctx);
+        }
+
+        // Right panel with image info and measurements
+        if self.show_info_panel {
+            self.draw_info_panel(ctx);
+        }
+
+        // Central panel with the image
+        self.draw_central_panel(ctx);
+
+        // Bottom panel with timeline and controls
+        self.draw_bottom_panel(ctx);
     }
 }
 
@@ -1264,8 +2330,11 @@ fn main() -> Result<(), eframe::Error> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([args.width as f32, args.height as f32])
-            .with_min_inner_size([640.0, 480.0])
-            .with_resizable(true),
+            .with_min_inner_size([800.0, 600.0])
+            .with_resizable(true)
+            .with_decorations(true) // Show window decorations
+            .with_transparent(false), // No transparency
+        //.with_icon(EguiIcon::default_raw()),
         vsync: false, // Disable VSync for minimal latency
         hardware_acceleration: eframe::HardwareAcceleration::Required,
         ..Default::default()
@@ -1273,8 +2342,8 @@ fn main() -> Result<(), eframe::Error> {
 
     // Run the application
     eframe::run_native(
-        "MiVi Echography Frame Viewer",
+        "Medical Echography Viewer",
         native_options,
-        Box::new(|_cc| Ok(Box::new(EchoViewer::new(args))))
+        Box::new(|_cc| Ok(Box::new(EchoViewer::new(args)))),
     )
 }
