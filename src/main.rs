@@ -12,7 +12,7 @@ use app::EchoViewer;
 
 // Keep your existing Args struct here
 #[derive(Parser, Debug)]
-#[command(name = "Medical Echography Viewer")]
+#[command(name = "MiVi Echography Viewer")]
 #[command(about = "Displays echography frames from shared memory in real-time")]
 struct Args {
     /// Name of the shared memory region
@@ -120,7 +120,7 @@ fn main() -> Result<(), eframe::Error> {
 
     // Run the application
     eframe::run_native(
-        "Medical Echography Viewer",
+        "MiVi Echography Viewer",
         native_options,
         Box::new(|cc| {
             // Set custom fonts if needed

@@ -4,7 +4,7 @@ use eframe::egui;
 use egui::*;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use crate::Args;
+use crate::{ui, Args};
 use crate::shared_memory::SharedMemoryReader;
 use crate::ui::animations::AnimationState;
 use crate::ui::theme::{Theme, UiColors};
@@ -67,6 +67,8 @@ pub struct EchoViewer {
     pub show_logo: bool,
     pub show_patient_details: bool,
     pub hovered_button: Option<usize>,
+    pub animation_settings: Option<ui::animations::AnimationSettings>,
+    pub is_capturing: Option<bool>,
 }
 
 impl EchoViewer {
@@ -149,6 +151,8 @@ impl EchoViewer {
             show_logo: true,
             show_patient_details: true,
             hovered_button: None,
+            animation_settings: Some(ui::animations::AnimationSettings::default()),
+            is_capturing: Some(false),
         }
     }
 

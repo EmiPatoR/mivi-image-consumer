@@ -10,8 +10,8 @@ use crate::ui::widgets;
 pub fn draw(app: &mut EchoViewer, ctx: &egui::Context) {
     egui::SidePanel::left("tools_panel")
         .resizable(true)
-        .default_width(48.0)
-        .width_range(48.0..=200.0)
+        .default_width(56.0)  // Slightly wider for better visibility
+        .width_range(56.0..=210.0)
         .show(ctx, |ui| {
             // Detect hover over the sidebar for animation
             if ui.rect_contains_pointer(ui.max_rect()) {

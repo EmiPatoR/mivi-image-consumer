@@ -2,6 +2,7 @@
 
 use crate::app::EchoViewer;
 use crate::ui::tools;
+use crate::ui::widgets::{glass_panel, solid_panel};
 use eframe::egui;
 use egui::epaint::CornerRadiusF32;
 use egui::*;
@@ -14,7 +15,9 @@ fn draw_rulers(app: &EchoViewer, ui: &egui::Ui, image_rect: Rect) {
 
     let stroke = Stroke::new(1.0, Color32::from_rgba_premultiplied(200, 200, 200, alpha));
     let text_color = Color32::from_rgba_premultiplied(200, 200, 200, alpha);
-    let ruler_bg = Color32::from_rgba_premultiplied(30, 30, 30, alpha);
+
+    // Semi-transparent ruler background
+    let ruler_bg = Color32::from_rgba_premultiplied(20, 25, 35, alpha);
 
     // Horizontal ruler (top)
     let ruler_height = 20.0;
@@ -231,22 +234,8 @@ fn draw_hud(app: &EchoViewer, ui: &egui::Ui, image_rect: Rect) {
                 let animation_offset = (i as f32 * 0.1).min(0.3);
                 let alpha = ((app.panel_alpha - animation_offset) / 0.7 * 180.0) as u8;
 
-                ui.painter().rect_filled(
-                    text_rect,
-                    CornerRadiusF32::same(5.0),
-                    Color32::from_rgba_premultiplied(20, 30, 50, alpha),
-                );
-
-                // Glass highlight
-                ui.painter().rect_stroke(
-                    text_rect,
-                    CornerRadiusF32::same(5.0),
-                    Stroke::new(
-                        1.0,
-                        Color32::from_rgba_premultiplied(255, 255, 255, alpha / 5),
-                    ),
-                    StrokeKind::Middle,
-                );
+                // Use glass_panel function instead of direct drawing
+                glass_panel(ui, text_rect, 5.0, alpha);
 
                 // Text with shadow
                 ui.painter().text(
@@ -314,28 +303,26 @@ pub fn draw(app: &mut EchoViewer, ctx: &egui::Context) {
 
                     // Rotating icon
                     let rotation_angle = app.elapsed_time * 1.5;
-                    let points = (0..8)
-                        .map(|i| {
-                            let angle = rotation_angle + i as f32 * std::f32::consts::PI / 4.0;
-                            let distance = icon_size * 0.4;
-                            let x = icon_rect.center().x + angle.cos() * distance;
-                            let y = icon_rect.center().y + angle.sin() * distance;
+                    for i in 0..8 {
+                        let angle = rotation_angle + i as f32 * std::f32::consts::PI / 4.0;
+                        let distance = icon_size * 0.4;
+                        let x = icon_rect.center().x + angle.cos() * distance;
+                        let y = icon_rect.center().y + angle.sin() * distance;
 
-                            let point_size = if i % 2 == 0 { 4.0 } else { 3.0 };
-                            let alpha = if i % 2 == 0 { 255 } else { 180 };
+                        let point_size = if i % 2 == 0 { 4.0 } else { 3.0 };
+                        let alpha = if i % 2 == 0 { 255 } else { 180 };
 
-                            ui.painter().circle_filled(
-                                Pos2::new(x, y),
-                                point_size,
-                                Color32::from_rgba_premultiplied(
-                                    accent_color.r(),
-                                    accent_color.g(),
-                                    accent_color.b(),
-                                    alpha,
-                                ),
-                            );
-                        })
-                        .collect::<Vec<_>>();
+                        ui.painter().circle_filled(
+                            Pos2::new(x, y),
+                            point_size,
+                            Color32::from_rgba_premultiplied(
+                                accent_color.r(),
+                                accent_color.g(),
+                                accent_color.b(),
+                                alpha,
+                            ),
+                        );
+                    }
 
                     ui.add_space(icon_size + 20.0);
 
@@ -379,7 +366,7 @@ pub fn draw(app: &mut EchoViewer, ctx: &egui::Context) {
                         app.animation.pulse_value,
                         ui.rect_contains_pointer(ui.min_rect().expand(60.0)),
                     )
-                    .clicked()
+                        .clicked()
                     {
                         app.try_connect();
                     }
@@ -416,6 +403,28 @@ pub fn draw(app: &mut EchoViewer, ctx: &egui::Context) {
             let image_response = ui
                 .centered_and_justified(|ui| ui.image((texture_id, display_size)))
                 .inner;
+
+            // Add subtle vignette effect around the image (medical focused)
+            let vignette_size = 15.0; // Controls the size of the vignette
+            let vignette_opacity = 100; // 0-255
+            let vignette_color = Color32::from_rgba_premultiplied(10, 15, 30, vignette_opacity);
+
+            for i in 0..vignette_size as usize {
+                let alpha = ((i as f32 / vignette_size) * vignette_opacity as f32) as u8;
+                let color = Color32::from_rgba_premultiplied(
+                    vignette_color.r(),
+                    vignette_color.g(),
+                    vignette_color.b(),
+                    vignette_opacity - alpha
+                );
+
+                ui.painter().rect_stroke(
+                    image_response.rect.expand(i as f32),
+                    0.0,
+                    Stroke::new(1.0, color),
+                    StrokeKind::Middle
+                );
+            }
 
             // Image container for glow/shadow effects
             let expanded_rect = image_response.rect.expand(2.0);
@@ -519,20 +528,8 @@ pub fn draw(app: &mut EchoViewer, ctx: &egui::Context) {
                     let text_size = egui::Vec2::new(60.0, 20.0);
                     let text_rect = Rect::from_center_size(mid_point, text_size);
 
-                    // Draw the glass-like panel background
-                    ui.painter().rect_filled(
-                        text_rect,
-                        CornerRadiusF32::same(6.0),
-                        Color32::from_rgba_premultiplied(20, 30, 50, 180),
-                    );
-
-                    // Glass effect highlight
-                    ui.painter().rect_stroke(
-                        text_rect,
-                        CornerRadiusF32::same(6.0),
-                        Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 255, 255, 25)),
-                        StrokeKind::Middle,
-                    );
+                    // Use glass_panel instead of direct drawing
+                    solid_panel(ui, text_rect, 6.0, app.colors.panel_bg);
 
                     // Calculate distance in pixels
                     let dx = end.x - start.x;
@@ -565,7 +562,8 @@ pub fn draw(app: &mut EchoViewer, ctx: &egui::Context) {
             tools::roi::draw_roi(app, ui);
 
             // Draw HUD if enabled
-            draw_hud(app, ui, image_response.rect);
+            //draw_hud(app, ui, image_response.rect);
+            
         } else {
             // No valid frame yet - show animated waiting message
             ui.centered_and_justified(|ui| {

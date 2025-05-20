@@ -4,7 +4,7 @@ use eframe::egui;
 use egui::*;
 use crate::app::EchoViewer;
 use crate::ui::theme::lerp_color;
-use crate::ui::widgets;
+use crate::ui::widgets::{self, glass_panel};
 
 // Draw the top panel with header and patient info
 pub fn draw(app: &mut EchoViewer, ctx: &egui::Context) {
@@ -100,7 +100,7 @@ pub fn draw(app: &mut EchoViewer, ctx: &egui::Context) {
                 );
 
                 ui.label(
-                    RichText::new("Medical Echography Viewer")
+                    RichText::new("MiVi Echography Viewer")
                         .heading()
                         .color(title_color)
                         .strong()
@@ -111,6 +111,24 @@ pub fn draw(app: &mut EchoViewer, ctx: &egui::Context) {
 
                 // Patient information with smooth reveal animation - use a fixed width
                 if app.show_patient_details {
+                    // Create a dedicated patient card
+                    let card_rect = Rect::from_min_size(
+                        Pos2::new(ui.cursor().min.x, header_rect.min.y + 6.0),
+                        Vec2::new(280.0, 36.0)
+                    );
+
+                    // Draw card background with glass effect - with proper alpha!
+                    glass_panel(ui, card_rect, 8.0, 180);
+
+                    // Add subtle patient icon
+                    ui.painter().text(
+                        Pos2::new(card_rect.min.x + 20.0, card_rect.center().y),
+                        Align2::LEFT_CENTER,
+                        "👤",
+                        FontId::proportional(14.0),
+                        Color32::from_rgba_premultiplied(180, 190, 210, 200)
+                    );
+
                     let alpha = (app.panel_alpha * 255.0) as u8;
                     let patient_info_width = 280.0; // Fixed width for patient info
 

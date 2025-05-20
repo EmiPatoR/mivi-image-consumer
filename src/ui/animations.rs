@@ -4,6 +4,23 @@ use crate::app::EchoViewer;
 use std::f32::consts::PI;
 use std::time::Instant;
 
+// Animation settings for performance control
+pub struct AnimationSettings {
+    pub enabled: bool,           // Global toggle
+    pub quality_level: u8,       // 1-3 (low, medium, high)
+    pub disable_when_capturing: bool, // Turn off animations during capture
+}
+
+impl Default for AnimationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            quality_level: 2,
+            disable_when_capturing: true,
+        }
+    }
+}
+
 // Animation state for UI elements
 pub struct AnimationState {
     pub transition_time: f32,
@@ -49,15 +66,43 @@ impl Default for AnimationState {
     }
 }
 
+// Easing functions for smoother animations
+fn ease_in_out(t: f32) -> f32 {
+    if t < 0.5 {
+        2.0 * t * t
+    } else {
+        -1.0 + (4.0 - 2.0 * t) * t
+    }
+}
+
+fn ease_out(t: f32) -> f32 {
+    1.0 - (1.0 - t) * (1.0 - t)
+}
+
 // Update all animations based on time delta
 pub fn update_animations(app: &mut EchoViewer, dt: f32) {
+    // Slow down all animations by using a smaller time delta
+    let slower_dt = dt * 0.6; // Reduce speed by 40%
+
+    // Skip all animations if disabled or when capturing
+    if app.animation_settings.is_some() &&
+        (!app.animation_settings.as_ref().unwrap().enabled ||
+            (app.animation_settings.as_ref().unwrap().disable_when_capturing && app.is_capturing.unwrap_or(false))) {
+        return;
+    }
+
     // Tool selection animation
     if app.animation.selected_tool_index != app.animation.previous_tool_index {
         app.animation.tool_selection_animation = 0.0;
         app.animation.previous_tool_index = app.animation.selected_tool_index;
     }
 
-    app.animation.tool_selection_animation = (app.animation.tool_selection_animation + dt * 4.0).min(1.0);
+    // Apply animation with slower speed
+    app.animation.tool_selection_animation =
+        (app.animation.tool_selection_animation + slower_dt * 3.0).min(1.0);
+
+    // Apply easing for smoother animation
+    app.animation.tool_selection_animation = ease_out(app.animation.tool_selection_animation);
 
     // Hover animations
     for i in 0..app.animation.button_hover_states.len() {
@@ -77,52 +122,67 @@ pub fn update_animations(app: &mut EchoViewer, dt: f32) {
 
     // Sidebar hover animation
     if app.animation.sidebar_hover {
-        app.animation.hover_progress = (app.animation.hover_progress + dt * 4.0).min(1.0);
+        app.animation.hover_progress = (app.animation.hover_progress + slower_dt * 3.0).min(1.0);
     } else {
-        app.animation.hover_progress = (app.animation.hover_progress - dt * 4.0).max(0.0);
+        app.animation.hover_progress = (app.animation.hover_progress - slower_dt * 3.0).max(0.0);
     }
 
+    // Apply easing for smoother transitions
+    app.animation.hover_progress = ease_out(app.animation.hover_progress);
+
     // Panel reveal animation
-    app.animation.panel_reveal_progress = (app.animation.panel_reveal_progress + dt * 3.0).min(1.0);
+    app.animation.panel_reveal_progress = (app.animation.panel_reveal_progress + slower_dt * 2.0).min(1.0);
+
+    // Apply easing
+    app.animation.panel_reveal_progress = ease_out(app.animation.panel_reveal_progress);
 
     // Startup animation
-    app.animation.startup_progress = (app.animation.startup_progress + dt * 2.0).min(1.0);
+    app.animation.startup_progress = (app.animation.startup_progress + slower_dt * 1.5).min(1.0);
 
-    // Pulsing animation
+    // Apply easing
+    app.animation.startup_progress = ease_in_out(app.animation.startup_progress);
+
+    // Pulsing animation - slower 
     if app.animation.pulse_direction {
-        app.animation.pulse_value += dt * 2.0;
+        app.animation.pulse_value += slower_dt * 1.5;  // Slower pulse
         if app.animation.pulse_value >= 1.0 {
             app.animation.pulse_value = 1.0;
             app.animation.pulse_direction = false;
         }
     } else {
-        app.animation.pulse_value -= dt * 2.0;
+        app.animation.pulse_value -= slower_dt * 1.5;  // Slower pulse
         if app.animation.pulse_value <= 0.0 {
             app.animation.pulse_value = 0.0;
             app.animation.pulse_direction = true;
         }
     }
 
+    // Apply sinusoidal curve for more natural pulsing
+    app.animation.pulse_value = (1.0 - (app.animation.pulse_value * PI).cos()) * 0.5;
+
     // Reconnect pulse
-    app.animation.reconnect_pulse = (app.animation.reconnect_pulse + dt * 6.0) % (PI * 2.0);
+    app.animation.reconnect_pulse = (app.animation.reconnect_pulse + slower_dt * 4.0) % (PI * 2.0);
 
     // Brightness/contrast animations
-    app.animation.brightness_change_anim = (app.animation.brightness_change_anim - dt * 3.0).max(0.0);
-    app.animation.contrast_change_anim = (app.animation.contrast_change_anim - dt * 3.0).max(0.0);
+    app.animation.brightness_change_anim = (app.animation.brightness_change_anim - slower_dt * 2.0).max(0.0);
+    app.animation.contrast_change_anim = (app.animation.contrast_change_anim - slower_dt * 2.0).max(0.0);
 
-    // Smooth zoom animation
+    // Smooth zoom animation with easing
     let zoom_diff = app.animation.target_zoom - app.animation.zoom_anim;
     if zoom_diff.abs() > 0.001 {
-        app.animation.zoom_anim += zoom_diff * (dt * 8.0).min(1.0);
+        // Use easing for smoother zoom with slower speed
+        let zoom_speed = ease_out((slower_dt * 5.0).min(1.0));
+        app.animation.zoom_anim += zoom_diff * zoom_speed;
     } else {
         app.animation.zoom_anim = app.animation.target_zoom;
     }
 
     // Global elapsed time for animations
-    app.elapsed_time += dt;
+    app.elapsed_time += slower_dt;
 
-    // Panel alpha animation
-    app.panel_alpha = (app.panel_alpha + dt * 2.0).min(1.0);
+    // Panel alpha animation with easing
+    app.panel_alpha = (app.panel_alpha + slower_dt * 1.5).min(1.0);
+    app.panel_alpha = ease_out(app.panel_alpha);
 }
 
 // Generate a pulsing animation value

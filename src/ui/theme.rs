@@ -63,22 +63,22 @@ impl Default for UiColors {
     fn default() -> Self {
         // Default medical theme colors
         Self {
-            primary: Color32::from_rgb(35, 47, 73),
-            secondary: Color32::from_rgb(48, 107, 185),
-            accent: Color32::from_rgb(66, 185, 196),
-            background: Color32::from_rgb(22, 25, 37),
-            panel_bg: Color32::from_rgb(27, 32, 44),
-            text: Color32::from_rgb(230, 235, 245),
-            text_secondary: Color32::from_rgb(180, 185, 205),
-            success: Color32::from_rgb(80, 210, 130),
-            warning: Color32::from_rgb(245, 190, 65),
-            error: Color32::from_rgb(230, 90, 90),
-            button_bg: Color32::from_rgb(44, 63, 102),
-            button_active: Color32::from_rgb(66, 135, 220),
-            button_hover: Color32::from_rgb(58, 117, 195),
-            border_light: Color32::from_rgb(60, 70, 95),
-            border_dark: Color32::from_rgb(40, 45, 65),
-            shadow: Color32::from_rgba_premultiplied(10, 12, 18, 200),
+            primary: Color32::from_rgb(28, 39, 65),         // Deeper blue
+            secondary: Color32::from_rgb(41, 90, 165),      // Softer blue
+            accent: Color32::from_rgb(56, 177, 189),        // Brighter teal accent
+            background: Color32::from_rgb(16, 20, 32),      // Darker background for contrast
+            panel_bg: Color32::from_rgb(22, 27, 38),        // Slightly lighter than background
+            text: Color32::from_rgb(235, 240, 250),         // Softer white for better eye comfort
+            text_secondary: Color32::from_rgb(175, 185, 210), // Subtle secondary text
+            success: Color32::from_rgb(70, 200, 120),       // Brighter green for better visibility
+            warning: Color32::from_rgb(240, 180, 50),       // Warmer yellow
+            error: Color32::from_rgb(225, 80, 80),          // Slightly softer red
+            button_bg: Color32::from_rgb(38, 54, 91),       // Richer button color
+            button_active: Color32::from_rgb(58, 120, 210), // Brighter active state
+            button_hover: Color32::from_rgb(48, 100, 180),  // Clear hover state
+            border_light: Color32::from_rgb(55, 65, 90),    // Subtle borders
+            border_dark: Color32::from_rgb(35, 40, 60),     // Shadow borders
+            shadow: Color32::from_rgba_premultiplied(8, 10, 16, 200), // Deeper shadows
         }
     }
 }
@@ -195,22 +195,22 @@ pub fn update_theme_colors(app: &mut EchoViewer) {
     match app.theme {
         Theme::MedicalBlue => {
             app.colors = UiColors {
-                primary: Color32::from_rgb(35, 47, 73),
-                secondary: Color32::from_rgb(48, 107, 185),
-                accent: Color32::from_rgb(66, 185, 196),
-                background: Color32::from_rgb(22, 25, 37),
-                panel_bg: Color32::from_rgb(27, 32, 44),
-                text: Color32::from_rgb(230, 235, 245),
-                text_secondary: Color32::from_rgb(180, 185, 205),
-                success: Color32::from_rgb(80, 210, 130),
-                warning: Color32::from_rgb(245, 190, 65),
-                error: Color32::from_rgb(230, 90, 90),
-                button_bg: Color32::from_rgb(44, 63, 102),
-                button_active: Color32::from_rgb(66, 135, 220),
-                button_hover: Color32::from_rgb(58, 117, 195),
-                border_light: Color32::from_rgb(60, 70, 95),
-                border_dark: Color32::from_rgb(40, 45, 65),
-                shadow: Color32::from_rgba_premultiplied(10, 12, 18, 200),
+                primary: Color32::from_rgb(28, 39, 65),         // Deeper blue
+                secondary: Color32::from_rgb(41, 90, 165),      // Softer blue
+                accent: Color32::from_rgb(56, 177, 189),        // Brighter teal accent
+                background: Color32::from_rgb(16, 20, 32),      // Darker background for contrast
+                panel_bg: Color32::from_rgb(22, 27, 38),        // Slightly lighter than background
+                text: Color32::from_rgb(235, 240, 250),         // Softer white for better eye comfort
+                text_secondary: Color32::from_rgb(175, 185, 210), // Subtle secondary text
+                success: Color32::from_rgb(70, 200, 120),       // Brighter green for better visibility
+                warning: Color32::from_rgb(240, 180, 50),       // Warmer yellow
+                error: Color32::from_rgb(225, 80, 80),          // Slightly softer red
+                button_bg: Color32::from_rgb(38, 54, 91),       // Richer button color
+                button_active: Color32::from_rgb(58, 120, 210), // Brighter active state
+                button_hover: Color32::from_rgb(48, 100, 180),  // Clear hover state
+                border_light: Color32::from_rgb(55, 65, 90),    // Subtle borders
+                border_dark: Color32::from_rgb(35, 40, 60),     // Shadow borders
+                shadow: Color32::from_rgba_premultiplied(8, 10, 16, 200), // Deeper shadows
             };
         },
         Theme::NightMode => {
