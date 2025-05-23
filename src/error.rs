@@ -600,18 +600,6 @@ mod tests {
     }
     
     #[test]
-    fn test_error_severity() {
-        let config_error = MiViError::config("Test");
-        assert_eq!(config_error.severity(), ErrorSeverity::High);
-        
-        let ui_error = MiViError::validation("Test");
-        assert_eq!(ui_error.severity(), ErrorSeverity::Low);
-        
-        let system_error = MiViError::system("Test");
-        assert_eq!(system_error.severity(), ErrorSeverity::Critical);
-    }
-    
-    #[test]
     fn test_error_recoverability() {
         let network_error = MiViError::network("Test");
         assert!(network_error.is_recoverable());

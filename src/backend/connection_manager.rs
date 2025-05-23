@@ -3,11 +3,11 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::backend::{
     shared_memory::SharedMemoryError,
-    types::{FrameStatistics, ProcessedFrame, RawFrame},
+    types::RawFrame,
     ConnectionConfig, ConnectionStatus, SharedMemoryReader,
 };
 
@@ -223,7 +223,7 @@ impl ConnectionManager {
         info!("🔄 Attempting reconnection #{}", *attempts);
 
         // Get current configuration
-        let config = {
+        let _config = {
             let config_lock = self.current_config.read().await;
             config_lock
                 .as_ref()

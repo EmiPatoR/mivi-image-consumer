@@ -17,25 +17,25 @@ use mivi_frame_viewer::{
 async fn main() {
     // Parse command line arguments
     let args = Args::parse();
-    
+
     // Initialize logging
     if let Err(e) = setup_logging(&args) {
         eprintln!("❌ Failed to setup logging: {}", e);
         process::exit(1);
     }
-    
+
     // Print startup banner
     print_startup_banner();
-    
+
     // Validate arguments
     if let Err(e) = validate_args(&args) {
         error!("❌ Invalid arguments: {}", e);
         process::exit(1);
     }
-    
+
     // Create backend configuration
     let backend_config = create_backend_config(&args);
-    
+
     // Initialize and run the application
     match run_application(backend_config).await {
         Ok(()) => {
@@ -55,18 +55,19 @@ fn setup_logging(args: &Args) -> Result<(), MiViError> {
     } else {
         "info"
     };
-    
+
     let env_filter = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new(format!("mivi_frame_viewer={}", log_level)))
         .map_err(|e| MiViError::Configuration(format!("Invalid log filter: {}", e)))?;
-    
-    tracing_subscriber::fmt()
+
+    // Use try_init to avoid panicking if logging is already initialized
+    let _result = tracing_subscriber::fmt()
         .with_env_filter(env_filter)
         .with_target(false)
         .with_level(true)
         .with_ansi(true)
-        .init();
-    
+        .try_init();
+
     Ok(())
 }
 
@@ -82,10 +83,9 @@ fn print_startup_banner() {
     println!("║                                                           ║");
     println!("╚═══════════════════════════════════════════════════════════╝");
     println!();
-    
+
     info!("🚀 Starting MiVi Medical Frame Viewer v0.2.0");
-    info!("🔧 Built with Rust {} and Slint UI Framework", env!("RUSTC_VERSION", "unknown"));
-    info!("📅 Build date: {}", env!("BUILD_DATE", "unknown"));
+    info!("🔧 Built with Rust and Slint UI Framework");
     info!("🏗️ Build profile: {}", if cfg!(debug_assertions) { "debug" } else { "release" });
 }
 
@@ -95,11 +95,11 @@ fn validate_args(args: &Args) -> Result<(), MiViError> {
     if args.shm_name.is_empty() {
         return Err(MiViError::Configuration("Shared memory name cannot be empty".to_string()));
     }
-    
+
     if args.shm_name.len() > 255 {
         return Err(MiViError::Configuration("Shared memory name too long (max 255 characters)".to_string()));
     }
-    
+
     // Validate format
     let valid_formats = ["yuv", "bgr", "rgb", "rgba", "grayscale"];
     if !valid_formats.contains(&args.format.to_string().to_lowercase().as_str()) {
@@ -109,25 +109,25 @@ fn validate_args(args: &Args) -> Result<(), MiViError> {
             valid_formats.join(", ")
         )));
     }
-    
+
     // Validate dimensions
     if args.width == 0 || args.height == 0 {
         return Err(MiViError::Configuration("Width and height must be greater than 0".to_string()));
     }
-    
+
     if args.width > 7680 || args.height > 4320 {
         warn!("⚠️ Large frame dimensions detected: {}x{} (consider performance impact)", args.width, args.height);
     }
-    
+
     // Validate reconnect delay
     if args.reconnect_delay == 0 {
         return Err(MiViError::Configuration("Reconnect delay must be greater than 0".to_string()));
     }
-    
+
     if args.reconnect_delay > 60000 {
         warn!("⚠️ Very long reconnect delay: {}ms", args.reconnect_delay);
     }
-    
+
     info!("✅ Command line arguments validated");
     Ok(())
 }
@@ -141,7 +141,7 @@ fn create_backend_config(args: &Args) -> BackendConfig {
     info!("   ⚡ Catch-up mode: {}", args.catch_up);
     info!("   🔄 Reconnect delay: {}ms", args.reconnect_delay);
     info!("   📝 Verbose logging: {}", args.verbose);
-    
+
     BackendConfig {
         shm_name: args.shm_name.clone(),
         format: args.format.to_string(),
@@ -156,19 +156,19 @@ fn create_backend_config(args: &Args) -> BackendConfig {
 /// Run the main application
 async fn run_application(backend_config: BackendConfig) -> Result<(), MiViError> {
     info!("🎬 Initializing MiVi Medical Frame Application");
-    
+
     // Create the application
     let mut app = MedicalFrameApp::new(backend_config).await
         .map_err(|e| MiViError::Application(format!("Failed to create application: {}", e)))?;
-    
+
     // Setup signal handlers for graceful shutdown
     setup_signal_handlers().await?;
-    
+
     // Run the application
     info!("🏃 Running application main loop");
     app.run().await
         .map_err(|e| MiViError::Application(format!("Application runtime error: {}", e)))?;
-    
+
     info!("🛑 Application shutdown complete");
     Ok(())
 }
@@ -178,13 +178,13 @@ async fn setup_signal_handlers() -> Result<(), MiViError> {
     #[cfg(unix)]
     {
         use tokio::signal;
-        
+
         tokio::spawn(async {
             let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())
                 .expect("Failed to setup SIGTERM handler");
             let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())
                 .expect("Failed to setup SIGINT handler");
-            
+
             tokio::select! {
                 _ = sigterm.recv() => {
                     info!("📡 Received SIGTERM, initiating graceful shutdown");
@@ -193,79 +193,24 @@ async fn setup_signal_handlers() -> Result<(), MiViError> {
                     info!("📡 Received SIGINT (Ctrl+C), initiating graceful shutdown");
                 }
             }
-            
-            // Note: In a more complex application, you might want to send a shutdown
-            // signal to the main application loop here
         });
     }
-    
+
     #[cfg(windows)]
     {
         use tokio::signal;
-        
+
         tokio::spawn(async {
-            let mut ctrl_c = signal::ctrl_c().await.expect("Failed to setup Ctrl+C handler");
-            
-            info!("📡 Received Ctrl+C, initiating graceful shutdown");
-        });
-    }
-    
-    Ok(())
-}
-
-/// Print system information for debugging
-#[allow(dead_code)]
-fn print_system_info() {
-    info!("💻 System Information:");
-    info!("   OS: {}", std::env::consts::OS);
-    info!("   Architecture: {}", std::env::consts::ARCH);
-    info!("   CPU cores: {}", num_cpus::get());
-    
-    // Print memory information if available
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
-            if let Some(line) = meminfo.lines().find(|line| line.starts_with("MemTotal:")) {
-                info!("   {}", line.trim());
-            }
-        }
-    }
-    
-    // Print Rust version
-    info!("   Rust version: {}", env!("RUSTC_VERSION", "unknown"));
-    
-    // Print build information
-    info!("   Build target: {}", env!("TARGET", "unknown"));
-    info!("   Build profile: {}", if cfg!(debug_assertions) { "debug" } else { "release" });
-    
-    if cfg!(feature = "simd") {
-        info!("   SIMD acceleration: enabled");
-    }
-    
-    if cfg!(feature = "gpu") {
-        info!("   GPU acceleration: enabled");
-    }
-}
-
-/// Cleanup resources on exit
-fn cleanup_on_exit() {
-    info!("🧹 Performing cleanup on exit");
-    
-    // Cleanup shared memory resources if needed
-    // (This would be more relevant in a C++ application with manual memory management)
-    
-    // Clear any temporary files
-    if let Ok(temp_dir) = std::env::temp_dir().read_dir() {
-        for entry in temp_dir.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                if name.starts_with("mivi_") && name.ends_with(".tmp") {
-                    if let Err(e) = std::fs::remove_file(entry.path()) {
-                        warn!("Failed to remove temporary file {:?}: {}", entry.path(), e);
-                    }
+            match signal::ctrl_c().await {
+                Ok(_) => {
+                    info!("📡 Received Ctrl+C, initiating graceful shutdown");
+                }
+                Err(e) => {
+                    error!("Failed to setup Ctrl+C handler: {}", e);
                 }
             }
-        }
+        });
     }
-    
-    info!("✅ Cleanup complete");
+
+    Ok(())
 }

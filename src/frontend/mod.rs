@@ -15,16 +15,37 @@ use tokio::sync::{mpsc, broadcast};
 use tracing::{info, error};
 
 use crate::backend::{
-    MedicalFrameBackend, BackendCommand, BackendEvent, BackendState, BackendConfig
+    MedicalFrameBackend, BackendCommand, BackendEvent, BackendConfig
 };
+use crate::frontend::image_converter::ImageConversionError;
 use crate::frontend::slint_bridge::SlintBridgeError;
+
+/// Frontend command for internal communication
+#[derive(Debug, Clone)]
+pub enum FrontendCommand {
+    /// Update UI with new frame data (raw data, not Slint Image)
+    UpdateFrame {
+        frame_data: Arc<[u8]>,
+        width: u32,
+        height: u32,
+        frame_id: u64,
+        sequence_number: u64,
+        resolution: String,
+        format: String,
+    },
+    /// Update connection status
+    UpdateConnectionStatus(String, bool),
+    /// Update statistics
+    UpdateStatistics(f64, f64, u64),
+    /// Clear frame display
+    ClearFrame,
+}
 
 /// Frontend service that manages the Slint UI and communicates with backend
 pub struct MedicalFrameFrontend {
     // Backend communication
     backend: Arc<MedicalFrameBackend>,
     command_sender: mpsc::UnboundedSender<BackendCommand>,
-    event_receiver: broadcast::Receiver<BackendEvent>,
 
     // UI components
     slint_bridge: Arc<SlintBridge>,
@@ -32,6 +53,10 @@ pub struct MedicalFrameFrontend {
 
     // Image processing
     image_converter: Arc<ImageConverter>,
+
+    // Internal frontend communication
+    frontend_command_tx: mpsc::UnboundedSender<FrontendCommand>,
+    frontend_command_rx: Option<mpsc::UnboundedReceiver<FrontendCommand>>,
 }
 
 impl MedicalFrameFrontend {
@@ -42,20 +67,23 @@ impl MedicalFrameFrontend {
         // Create backend
         let backend = Arc::new(MedicalFrameBackend::new(backend_config.clone()));
         let command_sender = backend.get_command_sender();
-        let event_receiver = backend.get_event_receiver();
 
         // Create UI components
         let slint_bridge = Arc::new(SlintBridge::new()?);
         let ui_state = Arc::new(tokio::sync::RwLock::new(UiState::new()));
         let image_converter = Arc::new(ImageConverter::new());
 
+        // Create internal command channel
+        let (frontend_command_tx, frontend_command_rx) = mpsc::unbounded_channel();
+
         Ok(Self {
             backend,
             command_sender,
-            event_receiver,
             slint_bridge,
             ui_state,
             image_converter,
+            frontend_command_tx,
+            frontend_command_rx: Some(frontend_command_rx),
         })
     }
 
@@ -70,10 +98,26 @@ impl MedicalFrameFrontend {
         // Setup UI event handlers
         self.setup_ui_handlers().await?;
 
-        // Start event processing loop
+        // Take the frontend command receiver
+        let mut frontend_command_rx = self.frontend_command_rx.take()
+            .ok_or(FrontendError::Other("Frontend already started".to_string()))?;
+
+        // Start event processing loop in background
         let event_processor = self.start_event_processing().await;
 
-        // Run the Slint UI
+        // Start frontend command processing loop in main thread
+        let slint_bridge = Arc::clone(&self.slint_bridge);
+        let image_converter = Arc::clone(&self.image_converter);
+
+        tokio::spawn(async move {
+            while let Some(cmd) = frontend_command_rx.recv().await {
+                if let Err(e) = Self::handle_frontend_command(cmd, &slint_bridge, &image_converter).await {
+                    error!("Failed to handle frontend command: {}", e);
+                }
+            }
+        });
+
+        // Run the Slint UI (blocks until UI closes)
         info!("🎨 Starting Slint UI");
         self.slint_bridge.run().await?;
 
@@ -81,6 +125,58 @@ impl MedicalFrameFrontend {
         event_processor.abort();
         info!("✅ MiVi Medical Frame Frontend stopped");
 
+        Ok(())
+    }
+
+    /// Handle frontend commands (runs on main thread)
+    async fn handle_frontend_command(
+        command: FrontendCommand,
+        slint_bridge: &Arc<SlintBridge>,
+        image_converter: &Arc<ImageConverter>,
+    ) -> Result<(), FrontendError> {
+        match command {
+            FrontendCommand::UpdateFrame { frame_data, width, height, frame_id, sequence_number, resolution, format } => {
+                // Convert raw data to Slint image on main thread
+                match image_converter.create_slint_image_from_rgba(&frame_data, width, height) {
+                    Ok(slint_image) => {
+                        slint_bridge.update_frame(
+                            slint_image,
+                            &resolution,
+                            &format,
+                            frame_id as i32,
+                            sequence_number as i32,
+                        ).await?;
+                    }
+                    Err(e) => {
+                        error!("Failed to create Slint image: {}", e);
+                        // Create error image
+                        match image_converter.create_error_image(width, height, &e.to_string()).await {
+                            Ok(error_image) => {
+                                slint_bridge.update_frame(
+                                    error_image,
+                                    &resolution,
+                                    "Error",
+                                    frame_id as i32,
+                                    sequence_number as i32,
+                                ).await?;
+                            }
+                            Err(ie) => {
+                                error!("Failed to create error image: {}", ie);
+                            }
+                        }
+                    }
+                }
+            }
+            FrontendCommand::UpdateConnectionStatus(status, connected) => {
+                slint_bridge.update_connection_status(&status, connected).await?;
+            }
+            FrontendCommand::UpdateStatistics(fps, latency, total_frames) => {
+                slint_bridge.update_statistics(fps as f32, latency as f32, total_frames as i32).await?;
+            }
+            FrontendCommand::ClearFrame => {
+                slint_bridge.clear_frame().await?;
+            }
+        }
         Ok(())
     }
 
@@ -143,12 +239,11 @@ impl MedicalFrameFrontend {
         Ok(())
     }
 
-    /// Start event processing from backend
+    /// Start event processing from backend (background thread)
     async fn start_event_processing(&mut self) -> tokio::task::JoinHandle<()> {
-        let mut event_receiver = self.event_receiver.resubscribe();
-        let slint_bridge = Arc::clone(&self.slint_bridge);
+        let mut event_receiver = self.backend.get_event_receiver();
         let ui_state = Arc::clone(&self.ui_state);
-        let image_converter = Arc::clone(&self.image_converter);
+        let frontend_command_tx = self.frontend_command_tx.clone();
 
         tokio::spawn(async move {
             info!("🔄 Starting backend event processing");
@@ -165,10 +260,8 @@ impl MedicalFrameFrontend {
                             state.connection_status = "Connected".to_string();
                         }
 
-                        // Update UI
-                        if let Err(e) = slint_bridge.update_connection_status("Connected", true).await {
-                            error!("Failed to update UI connection status: {}", e);
-                        }
+                        // Send frontend command
+                        let _ = frontend_command_tx.send(FrontendCommand::UpdateConnectionStatus("Connected".to_string(), true));
                     }
 
                     BackendEvent::Disconnected => {
@@ -182,10 +275,9 @@ impl MedicalFrameFrontend {
                             state.has_frame = false;
                         }
 
-                        // Update UI
-                        if let Err(e) = slint_bridge.update_connection_status("Disconnected", false).await {
-                            error!("Failed to update UI connection status: {}", e);
-                        }
+                        // Send frontend commands
+                        let _ = frontend_command_tx.send(FrontendCommand::UpdateConnectionStatus("Disconnected".to_string(), false));
+                        let _ = frontend_command_tx.send(FrontendCommand::ClearFrame);
                     }
 
                     BackendEvent::ConnectionError(error) => {
@@ -198,10 +290,8 @@ impl MedicalFrameFrontend {
                             state.connection_status = format!("Error: {}", error);
                         }
 
-                        // Update UI
-                        if let Err(e) = slint_bridge.update_connection_status(&format!("Error: {}", error), false).await {
-                            error!("Failed to update UI connection status: {}", e);
-                        }
+                        // Send frontend command
+                        let _ = frontend_command_tx.send(FrontendCommand::UpdateConnectionStatus(format!("Error: {}", error), false));
                     }
 
                     BackendEvent::ConnectionLost => {
@@ -213,42 +303,32 @@ impl MedicalFrameFrontend {
                             state.connection_status = "Reconnecting...".to_string();
                         }
 
-                        // Update UI
-                        if let Err(e) = slint_bridge.update_connection_status("Reconnecting...", false).await {
-                            error!("Failed to update UI connection status: {}", e);
-                        }
+                        // Send frontend command
+                        let _ = frontend_command_tx.send(FrontendCommand::UpdateConnectionStatus("Reconnecting...".to_string(), false));
                     }
 
                     BackendEvent::NewFrame(processed_frame) => {
-                        // Convert frame to Slint image format
-                        match image_converter.convert_to_slint_image(&processed_frame).await {
-                            Ok(slint_image) => {
-                                // Update UI state
-                                {
-                                    let mut state = ui_state.write().await;
-                                    state.has_frame = true;
-                                    state.frame_id = processed_frame.header.frame_id as i32;
-                                    state.sequence_number = processed_frame.header.sequence_number as i32;
-                                    state.resolution = processed_frame.resolution_string();
-                                    state.frame_format = processed_frame.format_string();
-                                    state.last_frame_time = std::time::Instant::now();
-                                }
-
-                                // Update UI with new frame
-                                if let Err(e) = slint_bridge.update_frame(
-                                    slint_image,
-                                    &processed_frame.resolution_string(),
-                                    &processed_frame.format_string(),
-                                    processed_frame.header.frame_id as i32,
-                                    processed_frame.header.sequence_number as i32,
-                                ).await {
-                                    error!("Failed to update UI frame: {}", e);
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to convert frame to Slint image: {}", e);
-                            }
+                        // Update UI state
+                        {
+                            let mut state = ui_state.write().await;
+                            state.has_frame = true;
+                            state.frame_id = processed_frame.header.frame_id as i32;
+                            state.sequence_number = processed_frame.header.sequence_number as i32;
+                            state.resolution = processed_frame.resolution_string();
+                            state.frame_format = processed_frame.format_string();
+                            state.last_frame_time = std::time::Instant::now();
                         }
+
+                        // Send frontend command with raw data (avoid sending Slint Image across threads)
+                        let _ = frontend_command_tx.send(FrontendCommand::UpdateFrame {
+                            frame_data: processed_frame.rgb_data.clone(),
+                            width: processed_frame.header.width,
+                            height: processed_frame.header.height,
+                            frame_id: processed_frame.header.frame_id,
+                            sequence_number: processed_frame.header.sequence_number,
+                            resolution: processed_frame.resolution_string(),
+                            format: processed_frame.format_string(),
+                        });
                     }
 
                     BackendEvent::StatisticsUpdate(stats) => {
@@ -260,14 +340,12 @@ impl MedicalFrameFrontend {
                             state.total_frames = stats.total_frames_received as i32;
                         }
 
-                        // Update UI statistics
-                        if let Err(e) = slint_bridge.update_statistics(
-                            stats.current_fps as f32,
-                            stats.average_latency_ms as f32,
-                            stats.total_frames_received as i32,
-                        ).await {
-                            error!("Failed to update UI statistics: {}", e);
-                        }
+                        // Send frontend command
+                        let _ = frontend_command_tx.send(FrontendCommand::UpdateStatistics(
+                            stats.current_fps,
+                            stats.average_latency_ms,
+                            stats.total_frames_received,
+                        ));
                     }
 
                     BackendEvent::SettingsChanged => {
@@ -303,6 +381,14 @@ impl MedicalFrameFrontend {
     }
 }
 
+// Add method to ImageConverter for creating Slint images from raw RGBA data
+impl ImageConverter {
+    /// Create Slint image from raw RGBA data (helper method)
+    pub fn create_slint_image_from_rgba(&self, rgba_data: &[u8], width: u32, height: u32) -> Result<slint::Image, ImageConversionError> {
+        self.create_slint_image_optimized(rgba_data, width, height)
+    }
+}
+
 /// Frontend errors
 #[derive(Debug, thiserror::Error)]
 pub enum FrontendError {
@@ -328,5 +414,11 @@ pub enum FrontendError {
 impl From<SlintBridgeError> for FrontendError {
     fn from(err: SlintBridgeError) -> Self {
         FrontendError::Slint(err.to_string())
+    }
+}
+
+impl From<crate::frontend::image_converter::ImageConversionError> for FrontendError {
+    fn from(err: crate::frontend::image_converter::ImageConversionError) -> Self {
+        FrontendError::ImageConversion(err.to_string())
     }
 }
