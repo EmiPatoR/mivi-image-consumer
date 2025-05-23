@@ -1,2 +1,127 @@
 /target
 .idea/
+
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Medical data (never commit patient data)
+*.dcm
+*.dicom
+patient_data/
+studies/
+worklists/*.wl
+
+# Configuration files with sensitive data
+config/local.json
+config/production.json
+*.env
+.env
+
+# Build artifacts
+dist/
+build/
+*.deb
+*.rpm
+*.msi
+*.dmg
+
+# Documentation build
+docs/_build/
+docs/build/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Shared memory dumps (for debugging)
+shm_dumps/
+frame_dumps/
+*.raw
+*.yuv
+*.bgr
+
+# Performance profiling
+*.prof
+perf.data*
+flamegraph.svg
+
+# Code coverage
+tarpaulin-report.html
+coverage/
+*.profraw
+
+# Backup files
+*.bak
+*.backup
+
+# Lock files
+package-lock.json
+yarn.lock
+
+# Local development
+local_config.toml
+dev_settings.json
+
+# Medical device simulators
+simulators/
+test_data/medical/
+
+# Generated UI files
+ui/generated/
+*.ui.rs
+
+# Platform specific
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Rust-specific
+**/*.rs.bk
+*.orig
+
+# Slint generated files
+target/
+.slint/
+
+# Application specific
+settings.json
+mivi_settings.json
+user_preferences.json
+
+# Debug dumps
+debug/
+crash_dumps/
+core.*

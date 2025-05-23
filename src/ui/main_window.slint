@@ -1,0 +1,629 @@
+// ui/main_window.slint - MiVi Professional Medical Frame Viewer UI
+
+import { Button, VerticalBox, HorizontalBox, GridBox, LineEdit, ComboBox, CheckBox } from "std-widgets.slint";
+
+// Medical Professional Color Palette
+global MedicalTheme {
+    // Primary Colors (Medical Blue)
+    in property <color> primary-color: #3b82f6;
+    in property <color> primary-hover: #2563eb;
+    in property <color> primary-light: #60a5fa;
+
+    // Medical Status Colors
+    in property <color> success-color: #10b981;
+    in property <color> error-color: #ef4444;
+    in property <color> warning-color: #f59e0b;
+
+    // Dark Theme Grays (Enhanced contrast)
+    in property <color> slate-50: #f8fafc;
+    in property <color> slate-100: #f1f5f9;
+    in property <color> slate-200: #e2e8f0;
+    in property <color> slate-300: #cbd5e1;
+    in property <color> slate-400: #94a3b8;
+    in property <color> slate-500: #64748b;
+    in property <color> slate-600: #475569;
+    in property <color> slate-700: #334155;
+    in property <color> slate-800: #1e293b;
+    in property <color> slate-900: #0f172a;
+
+    // Professional gradients
+    in property <brush> bg-gradient: @radial-gradient(circle, #1e293b 0%, #0f172a 50%, #1e40af 100%);
+    in property <brush> card-gradient: @linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    in property <brush> button-gradient: @linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    in property <brush> success-gradient: @linear-gradient(135deg, #10b981 0%, #059669 100%);
+    in property <brush> error-gradient: @linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+
+    // Typography
+    in property <length> font-size-xs: 12px;
+    in property <length> font-size-sm: 14px;
+    in property <length> font-size-base: 16px;
+    in property <length> font-size-lg: 18px;
+    in property <length> font-size-xl: 20px;
+    in property <length> font-size-2xl: 24px;
+    in property <length> font-size-3xl: 30px;
+    in property <length> font-size-4xl: 36px;
+
+    // Spacing
+    in property <length> spacing-xs: 4px;
+    in property <length> spacing-sm: 8px;
+    in property <length> spacing-md: 16px;
+    in property <length> spacing-lg: 24px;
+    in property <length> spacing-xl: 32px;
+    in property <length> spacing-2xl: 48px;
+
+    // Shadows & Effects
+    in property <length> border-radius: 12px;
+    in property <length> border-radius-lg: 16px;
+    in property <length> border-radius-xl: 24px;
+}
+
+// Professional Status Indicator Component
+component StatusIndicator {
+    in property <string> status-text: "Unknown";
+    in property <color> status-color: MedicalTheme.slate-500;
+    in property <string> status-icon: "●";
+
+    preferred-width: 120px;
+    preferred-height: 32px;
+
+    Rectangle {
+        background: status-color.with-alpha(0.2);
+        border-color: status-color;
+        border-width: 1px;
+        border-radius: 16px;
+
+        HorizontalBox {
+            alignment: center;
+            spacing: MedicalTheme.spacing-xs;
+            padding: MedicalTheme.spacing-sm;
+
+            Text {
+                text: status-icon;
+                font-size: MedicalTheme.font-size-sm;
+                color: status-color;
+                font-weight: 700;
+            }
+
+            Text {
+                text: status-text;
+                font-size: MedicalTheme.font-size-xs;
+                color: status-color;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+            }
+        }
+    }
+}
+
+// Professional Medical Card Component
+component MedicalCard {
+    in property <string> title: "Card Title";
+    in property <bool> elevated: false;
+
+    preferred-height: 120px;
+
+    Rectangle {
+        background: MedicalTheme.card-gradient;
+        border-color: MedicalTheme.slate-700;
+        border-width: 1px;
+        border-radius: MedicalTheme.border-radius;
+        drop-shadow-color: #000000.with-alpha(0.5);
+        drop-shadow-blur: elevated ? 20px : 8px;
+        drop-shadow-offset-y: elevated ? 8px : 4px;
+
+        // Subtle top accent line
+        Rectangle {
+            y: 0;
+            height: 3px;
+            background: @linear-gradient(90deg, MedicalTheme.primary-color 0%, #7c3aed 100%);
+            border-radius: 12px;
+        }
+
+        @children
+    }
+}
+
+// Professional Medical Button Component
+component MedicalButton {
+    in property <string> text: "Button";
+    in property <string> icon: "";
+    in property <brush> bg-color: MedicalTheme.button-gradient;
+    in property <bool> primary: true;
+    callback clicked();
+
+    preferred-height: 48px;
+
+    Rectangle {
+        background: bg-color;
+        border-radius: MedicalTheme.border-radius;
+        border-color: primary ? MedicalTheme.primary-color : MedicalTheme.slate-600;
+        border-width: 2px;
+        drop-shadow-color: #000000.with-alpha(0.3);
+        drop-shadow-blur: 8px;
+        drop-shadow-offset-y: 4px;
+
+        TouchArea {
+            clicked => {
+                root.clicked();
+            }
+
+            HorizontalBox {
+                alignment: center;
+                spacing: MedicalTheme.spacing-sm;
+                padding: MedicalTheme.spacing-md;
+
+                if (icon != ""): Text {
+                    text: icon;
+                    font-size: MedicalTheme.font-size-lg;
+                }
+
+                Text {
+                    text: text;
+                    font-size: MedicalTheme.font-size-base;
+                    font-weight: 600;
+                    color: #ffffff;
+                }
+            }
+        }
+    }
+}
+
+// Frame Display Component
+component FrameDisplay {
+    in property <image> frame-image;
+    in property <bool> has-frame: false;
+    in property <string> resolution: "0x0";
+    in property <string> format: "Unknown";
+
+    Rectangle {
+        background: MedicalTheme.slate-900;
+        border-color: MedicalTheme.slate-700;
+        border-width: 2px;
+        border-radius: MedicalTheme.border-radius;
+
+        if (!has-frame): VerticalBox {
+            alignment: center;
+            spacing: MedicalTheme.spacing-lg;
+
+            Text {
+                text: "📺";
+                font-size: 64px;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: "Waiting for Frames...";
+                font-size: MedicalTheme.font-size-xl;
+                color: MedicalTheme.slate-400;
+                horizontal-alignment: center;
+                font-weight: 600;
+            }
+
+            Text {
+                text: "Connect your medical imaging device";
+                font-size: MedicalTheme.font-size-sm;
+                color: MedicalTheme.slate-500;
+                horizontal-alignment: center;
+            }
+        }
+
+        if (has-frame): Image {
+            source: frame-image;
+            image-fit: contain;
+
+            // Frame info overlay
+            Rectangle {
+                x: parent.width - self.width - 16px;
+                y: 16px;
+                width: info-layout.preferred-width + 24px;
+                height: info-layout.preferred-height + 16px;
+                background: MedicalTheme.slate-800.with-alpha(0.9);
+                border-radius: 8px;
+                border-color: MedicalTheme.slate-600;
+                border-width: 1px;
+
+                VerticalBox {
+                    info-layout := VerticalBox {
+                        alignment: start;
+                        spacing: MedicalTheme.spacing-xs;
+                        padding: MedicalTheme.spacing-sm;
+
+                        Text {
+                            text: resolution;
+                            font-size: MedicalTheme.font-size-sm;
+                            color: MedicalTheme.slate-200;
+                            font-weight: 600;
+                        }
+
+                        Text {
+                            text: format;
+                            font-size: MedicalTheme.font-size-xs;
+                            color: MedicalTheme.slate-400;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Main Application Window
+export component MainWindow inherits Window {
+    // Window properties
+    title: "MiVi - Medical Imaging Virtual Intelligence";
+    background: MedicalTheme.bg-gradient;
+    preferred-width: 1400px;
+    preferred-height: 900px;
+    min-width: 1200px;
+    min-height: 700px;
+
+    // Application state properties
+    in-out property <string> connection-status: "Disconnected";
+    in-out property <string> shm-name: "ultrasound_frames";
+    in-out property <string> format: "YUV";
+    in-out property <string> resolution: "0x0";
+    in-out property <float> fps: 0.0;
+    in-out property <float> latency-ms: 0.0;
+    in-out property <int> total-frames: 0;
+    in-out property <bool> catch-up-mode: false;
+    in-out property <bool> is-connected: false;
+    in-out property <image> current-frame;
+    in-out property <bool> has-frame: false;
+
+    // Frame header properties
+    in-out property <int> frame-id: 0;
+    in-out property <int> sequence-number: 0;
+    in-out property <string> frame-format: "Unknown";
+
+    // Callbacks
+    callback reconnect-clicked();
+    callback toggle-catch-up();
+    callback settings-clicked();
+    callback about-clicked();
+
+    VerticalBox {
+        // Professional Header
+        MedicalCard {
+            title: "Header";
+            preferred-height: 120px;
+            elevated: true;
+
+            HorizontalBox {
+                alignment: space-between;
+                padding: MedicalTheme.spacing-lg;
+
+                // Left: Logo and Title
+                HorizontalBox {
+                    spacing: MedicalTheme.spacing-lg;
+                    alignment: center;
+
+                    // MiVi Logo
+                    Rectangle {
+                        width: 80px;
+                        height: 80px;
+                        background: MedicalTheme.button-gradient;
+                        border-radius: MedicalTheme.border-radius;
+                        border-color: MedicalTheme.primary-color;
+                        border-width: 2px;
+                        drop-shadow-color: #000000.with-alpha(0.3);
+                        drop-shadow-blur: 8px;
+
+                        Text {
+                            text: "MV";
+                            font-size: MedicalTheme.font-size-2xl;
+                            font-weight: 800;
+                            color: #ffffff;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    VerticalBox {
+                        spacing: MedicalTheme.spacing-xs;
+                        alignment: start;
+
+                        Text {
+                            text: "DICOM Frame Viewer";
+                            font-size: MedicalTheme.font-size-3xl;
+                            font-weight: 800;
+                            color: MedicalTheme.slate-100;
+                        }
+
+                        Text {
+                            text: "MiVi - Medical Imaging Virtual Intelligence";
+                            font-size: MedicalTheme.font-size-lg;
+                            color: MedicalTheme.primary-light;
+                            font-weight: 600;
+                        }
+
+                        Text {
+                            text: "Professional real-time medical imaging";
+                            font-size: MedicalTheme.font-size-sm;
+                            color: MedicalTheme.slate-300;
+                        }
+                    }
+                }
+
+                // Right: Connection Status
+                VerticalBox {
+                    alignment: end;
+                    spacing: MedicalTheme.spacing-sm;
+
+                    StatusIndicator {
+                        status-text: connection-status;
+                        status-color: is-connected ? MedicalTheme.success-color : MedicalTheme.error-color;
+                        status-icon: is-connected ? "✓" : "✗";
+                    }
+
+                    Text {
+                        text: "Active Frames: " + total-frames;
+                        font-size: MedicalTheme.font-size-sm;
+                        color: MedicalTheme.slate-300;
+                        horizontal-alignment: right;
+                    }
+                }
+            }
+        }
+
+        // Status Bar
+        MedicalCard {
+            title: "Status";
+            preferred-height: 80px;
+
+            HorizontalBox {
+                alignment: space-between;
+                padding: MedicalTheme.spacing-md;
+                spacing: MedicalTheme.spacing-lg;
+
+                // Left: Frame Info
+                HorizontalBox {
+                    spacing: MedicalTheme.spacing-lg;
+                    alignment: center;
+
+                    if (has-frame): StatusIndicator {
+                        status-text: "Resolution: " + resolution;
+                        status-color: MedicalTheme.primary-color;
+                        status-icon: "📐";
+                    }
+
+                    if (has-frame): StatusIndicator {
+                        status-text: "Format: " + format;
+                        status-color: MedicalTheme.primary-color;
+                        status-icon: "🎨";
+                    }
+
+                    if (has-frame): StatusIndicator {
+                        status-text: "FPS: " + Math.round(fps);
+                        status-color: fps > 20 ? MedicalTheme.success-color : MedicalTheme.warning-color;
+                        status-icon: "📊";
+                    }
+
+                    if (has-frame): StatusIndicator {
+                        status-text: "Latency: " + Math.round(latency-ms) + "ms";
+                        status-color: latency-ms < 50 ? MedicalTheme.success-color : MedicalTheme.warning-color;
+                        status-icon: "⏱️";
+                    }
+                }
+
+                // Right: Controls
+                HorizontalBox {
+                    spacing: MedicalTheme.spacing-md;
+                    alignment: center;
+
+                    CheckBox {
+                        text: "Skip to Latest";
+                        checked: catch-up-mode;
+                        toggled => {
+                            toggle-catch-up();
+                        }
+                    }
+
+                    MedicalButton {
+                        text: "Reconnect";
+                        icon: "🔄";
+                        primary: false;
+                        bg-color: @linear-gradient(135deg, MedicalTheme.slate-600 0%, MedicalTheme.slate-700 100%);
+                        clicked => {
+                            reconnect-clicked();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Main Content Area
+        HorizontalBox {
+            spacing: MedicalTheme.spacing-lg;
+            padding: MedicalTheme.spacing-lg;
+
+            // Frame Display (Main Area)
+            FrameDisplay {
+                frame-image: current-frame;
+                has-frame: has-frame;
+                resolution: resolution;
+                format: frame-format;
+            }
+
+            // Right Sidebar
+            VerticalBox {
+                preferred-width: 320px;
+                spacing: MedicalTheme.spacing-lg;
+                alignment: start;
+
+                // Frame Details Card
+                MedicalCard {
+                    title: "Frame Details";
+                    preferred-height: 200px;
+
+                    VerticalBox {
+                        padding: MedicalTheme.spacing-lg;
+                        spacing: MedicalTheme.spacing-md;
+                        alignment: start;
+
+                        Text {
+                            text: "📊 Frame Statistics";
+                            font-size: MedicalTheme.font-size-lg;
+                            font-weight: 700;
+                            color: MedicalTheme.slate-100;
+                        }
+
+                        if (has-frame): VerticalBox {
+                            spacing: MedicalTheme.spacing-sm;
+
+                            HorizontalBox {
+                                Text {
+                                    text: "Frame ID:";
+                                    font-size: MedicalTheme.font-size-sm;
+                                    color: MedicalTheme.slate-400;
+                                }
+                                Text {
+                                    text: frame-id;
+                                    font-size: MedicalTheme.font-size-sm;
+                                    color: MedicalTheme.slate-200;
+                                    font-weight: 600;
+                                }
+                            }
+
+                            HorizontalBox {
+                                Text {
+                                    text: "Sequence:";
+                                    font-size: MedicalTheme.font-size-sm;
+                                    color: MedicalTheme.slate-400;
+                                }
+                                Text {
+                                    text: sequence-number;
+                                    font-size: MedicalTheme.font-size-sm;
+                                    color: MedicalTheme.slate-200;
+                                    font-weight: 600;
+                                }
+                            }
+
+                            HorizontalBox {
+                                Text {
+                                    text: "Total Frames:";
+                                    font-size: MedicalTheme.font-size-sm;
+                                    color: MedicalTheme.slate-400;
+                                }
+                                Text {
+                                    text: total-frames;
+                                    font-size: MedicalTheme.font-size-sm;
+                                    color: MedicalTheme.slate-200;
+                                    font-weight: 600;
+                                }
+                            }
+                        }
+
+                        if (!has-frame): Text {
+                            text: "No frame data available";
+                            font-size: MedicalTheme.font-size-sm;
+                            color: MedicalTheme.slate-500;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+
+                // Settings Card
+                MedicalCard {
+                    title: "Settings";
+                    preferred-height: 180px;
+
+                    VerticalBox {
+                        padding: MedicalTheme.spacing-lg;
+                        spacing: MedicalTheme.spacing-md;
+                        alignment: start;
+
+                        Text {
+                            text: "⚙️ Configuration";
+                            font-size: MedicalTheme.font-size-lg;
+                            font-weight: 700;
+                            color: MedicalTheme.slate-100;
+                        }
+
+                        VerticalBox {
+                            spacing: MedicalTheme.spacing-sm;
+
+                            Text {
+                                text: "Shared Memory:";
+                                font-size: MedicalTheme.font-size-sm;
+                                color: MedicalTheme.slate-400;
+                            }
+
+                            LineEdit {
+                                text: shm-name;
+                                font-size: MedicalTheme.font-size-sm;
+                                placeholder-text: "ultrasound_frames";
+                            }
+                        }
+
+                        MedicalButton {
+                            text: "Settings";
+                            icon: "⚙️";
+                            primary: false;
+                            bg-color: @linear-gradient(135deg, MedicalTheme.slate-600 0%, MedicalTheme.slate-700 100%);
+                            clicked => {
+                                settings-clicked();
+                            }
+                        }
+                    }
+                }
+
+                // About Card
+                MedicalCard {
+                    title: "About";
+                    preferred-height: 120px;
+
+                    VerticalBox {
+                        padding: MedicalTheme.spacing-lg;
+                        spacing: MedicalTheme.spacing-sm;
+                        alignment: center;
+
+                        Text {
+                            text: "MiVi v0.2.0";
+                            font-size: MedicalTheme.font-size-base;
+                            font-weight: 700;
+                            color: MedicalTheme.slate-100;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "Professional Medical Imaging";
+                            font-size: MedicalTheme.font-size-sm;
+                            color: MedicalTheme.slate-400;
+                            horizontal-alignment: center;
+                        }
+
+                        MedicalButton {
+                            text: "About";
+                            icon: "ℹ️";
+                            primary: false;
+                            bg-color: @linear-gradient(135deg, MedicalTheme.slate-600 0%, MedicalTheme.slate-700 100%);
+                            clicked => {
+                                about-clicked();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Professional Footer
+        Rectangle {
+            height: 40px;
+            background: MedicalTheme.slate-800.with-alpha(0.8);
+            border-color: MedicalTheme.slate-700;
+            border-width: 1px;
+
+            HorizontalBox {
+                alignment: center;
+                padding: MedicalTheme.spacing-sm;
+
+                Text {
+                    text: "© 2025 MiVi - Medical Imaging Virtual Intelligence | Professional DICOM Workflow Solutions";
+                    font-size: MedicalTheme.font-size-xs;
+                    color: MedicalTheme.slate-400;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+    }
+}

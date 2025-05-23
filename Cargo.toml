@@ -1,19 +1,43 @@
 [package]
-name = "shm_frame_viewer"
-version = "0.1.0"
-edition = "2024"
+name = "mivi_frame_viewer"
+version = "0.2.0"
+edition = "2021"
 authors = ["Your Name <your.email@example.com>"]
-description = "A viewer for shared memory frames from medical imaging devices"
+description = "MiVi - Professional DICOM Frame Viewer with Real-time Streaming"
 
 [dependencies]
-eframe = "0.31.1"
-egui = "0.31.1"
+# Slint UI Framework 1.8
+slint = "1.11.0"
+
+# Shared Memory & Core
 memmap2 = "0.9.5"
-serde_json = "1.0.108"
-clap = { version = "4.1.11", features = ["derive"] }
-libc = "0.2.172"
 parking_lot = "0.12.3"
+
+# Async Runtime & Channels
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = "0.7"
+
+# Serialization & Time
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+# CLI & Logging
+clap = { version = "4.1.11", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# System & Performance
+libc = "0.2.172"
 crossbeam = "0.8.4"
+num_cpus = "1.16"
+
+# Image Processing (zero-copy optimized)
+image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
+thiserror = "1.0.69"
+
+[build-dependencies]
+slint-build = "1.8"
 
 [profile.release]
 opt-level = 3
@@ -22,25 +46,26 @@ codegen-units = 1
 panic = "abort"
 strip = true
 debug = false
+overflow-checks = false
 
 [profile.dev]
-opt-level = 1      # Use slightly better optimizations in development
-debug = true       # Full debug info
+opt-level = 1
+debug = true
+overflow-checks = true
 
 [package.metadata.deb]
 maintainer = "Your Name <your.email@example.com>"
-copyright = "2023, Your Name <your.email@example.com>"
+copyright = "2025, Your Name <your.email@example.com>"
 license-file = ["LICENSE", "4"]
 extended-description = """
-A real-time viewer for shared memory frames.
-Displays ultrasound or other medical imaging data
-streamed through shared memory from a C++ producer.
+MiVi - Medical Imaging Virtual Intelligence
+Professional real-time DICOM frame viewer with zero-latency streaming.
+Designed for ultrasound and medical imaging devices with shared memory integration.
 """
 depends = "$auto"
 section = "medical"
 priority = "optional"
 assets = [
-    ["target/release/shm_frame_viewer", "usr/bin/", "755"],
-    ["README.md", "usr/share/doc/shm_frame_viewer/", "644"],
+    ["target/release/mivi_frame_viewer", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/mivi_frame_viewer/", "644"],
 ]
-
