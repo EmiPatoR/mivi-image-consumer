@@ -17,6 +17,7 @@ use tracing::{info, error};
 use crate::backend::{
     MedicalFrameBackend, BackendCommand, BackendEvent, BackendState, BackendConfig
 };
+use crate::frontend::slint_bridge::SlintBridgeError;
 
 /// Frontend service that manages the Slint UI and communicates with backend
 pub struct MedicalFrameFrontend {
@@ -322,4 +323,10 @@ pub enum FrontendError {
 
     #[error("Other frontend error: {0}")]
     Other(String),
+}
+
+impl From<SlintBridgeError> for FrontendError {
+    fn from(err: SlintBridgeError) -> Self {
+        FrontendError::Slint(err.to_string())
+    }
 }

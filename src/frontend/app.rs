@@ -1,6 +1,7 @@
 // src/frontend/app.rs - Main Application Frontend for Medical Frame Viewer
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::sync::{mpsc, broadcast};
 use tracing::{info, error, warn, debug};
 
@@ -23,7 +24,7 @@ pub struct MedicalFrameApp {
     image_converter: Arc<ImageConverter>,
     
     // Application state
-    is_running: Arc<tokio::sync::AtomicBool>,
+    is_running: Arc<AtomicBool>,
     settings_path: std::path::PathBuf,
 }
 
@@ -60,7 +61,7 @@ impl MedicalFrameApp {
             slint_bridge,
             ui_state,
             image_converter,
-            is_running: Arc::new(tokio::sync::AtomicBool::new(false)),
+            is_running: Arc::new(AtomicBool::new(false)),
             settings_path,
         };
         

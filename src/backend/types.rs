@@ -204,7 +204,7 @@ impl FrameFormat {
 }
 
 /// Frame statistics for performance monitoring
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct FrameStatistics {
     pub total_frames_received: u64,
     pub total_frames_processed: u64,
@@ -216,6 +216,23 @@ pub struct FrameStatistics {
     pub fps_frame_count: u64,
     pub latency_samples: Vec<f64>,
     pub max_latency_samples: usize,
+}
+
+impl Default for FrameStatistics {
+    fn default() -> Self {
+        Self {
+            total_frames_received: 0,
+            total_frames_processed: 0,
+            frames_dropped: 0,
+            current_fps: 0.0,
+            average_latency_ms: 0.0,
+            last_frame_time: None,
+            fps_measurement_start: Instant::now(),
+            fps_frame_count: 0,
+            latency_samples: Vec::new(),
+            max_latency_samples: 100,
+        }
+    }
 }
 
 impl FrameStatistics {

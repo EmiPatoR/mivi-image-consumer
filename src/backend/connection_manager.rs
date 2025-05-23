@@ -3,9 +3,13 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 
-use crate::backend::{SharedMemoryReader, types::{RawFrame, ConnectionConfig, ConnectionStatus}, shared_memory::SharedMemoryError, ConnectionStatus};
+use crate::backend::{
+    shared_memory::SharedMemoryError,
+    types::{FrameStatistics, ProcessedFrame, RawFrame},
+    ConnectionConfig, ConnectionStatus, SharedMemoryReader,
+};
 
 /// Connection manager for medical imaging devices
 pub struct ConnectionManager {
@@ -42,7 +46,11 @@ impl ConnectionManager {
     }
 
     /// Connect to shared memory with specified configuration
-    pub async fn connect(&self, shm_name: &str, config: ConnectionConfig) -> Result<(), ConnectionManagerError> {
+    pub async fn connect(
+        &self,
+        shm_name: &str,
+        config: ConnectionConfig,
+    ) -> Result<(), ConnectionManagerError> {
         info!("🔌 Connecting to medical device: {}", shm_name);
 
         // Update connection status
@@ -116,7 +124,10 @@ impl ConnectionManager {
 
     /// Check if currently connected
     pub async fn is_connected(&self) -> bool {
-        matches!(*self.connection_status.read().await, ConnectionStatus::Connected)
+        matches!(
+            *self.connection_status.read().await,
+            ConnectionStatus::Connected
+        )
     }
 
     /// Get current connection status
@@ -125,10 +136,14 @@ impl ConnectionManager {
     }
 
     /// Get next frame from shared memory
-    pub async fn get_next_frame(&self, catch_up: bool) -> Result<Option<RawFrame>, ConnectionManagerError> {
+    pub async fn get_next_frame(
+        &self,
+        catch_up: bool,
+    ) -> Result<Option<RawFrame>, ConnectionManagerError> {
         // Check if we have an active reader
         let reader_lock = self.reader.read().await;
-        let reader = reader_lock.as_ref()
+        let reader = reader_lock
+            .as_ref()
             .ok_or(ConnectionManagerError::NotConnected)?;
 
         // Check connection health
@@ -154,27 +169,29 @@ impl ConnectionManager {
 
             // Try to get the frame again with the new connection
             let reader_lock = self.reader.read().await;
-            let reader = reader_lock.as_ref()
+            let reader = reader_lock
+                .as_ref()
                 .ok_or(ConnectionManagerError::NotConnected)?;
 
-            reader.get_next_frame(catch_up).await
+            reader
+                .get_next_frame(catch_up)
+                .await
                 .map_err(|e| ConnectionManagerError::SharedMemory(e))
         } else {
             // Connection is healthy, get frame normally
-            reader.get_next_frame(catch_up).await
-                .map_err(|e| {
-                    match e {
-                        SharedMemoryError::ConnectionLost => {
-                            // Schedule reconnection
-                            let connection_status = Arc::clone(&self.connection_status);
-                            tokio::spawn(async move {
-                                *connection_status.write().await = ConnectionStatus::Reconnecting;
-                            });
-                            ConnectionManagerError::ConnectionLost
-                        }
-                        _ => ConnectionManagerError::SharedMemory(e)
+            reader.get_next_frame(catch_up).await.map_err(|e| {
+                match e {
+                    SharedMemoryError::ConnectionLost => {
+                        // Schedule reconnection
+                        let connection_status = Arc::clone(&self.connection_status);
+                        tokio::spawn(async move {
+                            *connection_status.write().await = ConnectionStatus::Reconnecting;
+                        });
+                        ConnectionManagerError::ConnectionLost
                     }
-                })
+                    _ => ConnectionManagerError::SharedMemory(e),
+                }
+            })
         }
     }
 
@@ -193,9 +210,10 @@ impl ConnectionManager {
         // Check if we've exceeded max attempts
         if *attempts >= self.base_config.max_reconnect_attempts {
             warn!("🔄 Maximum reconnection attempts exceeded: {}", *attempts);
-            *self.connection_status.write().await = ConnectionStatus::Error(
-                format!("Max reconnection attempts exceeded: {}", *attempts)
-            );
+            *self.connection_status.write().await = ConnectionStatus::Error(format!(
+                "Max reconnection attempts exceeded: {}",
+                *attempts
+            ));
             return Err(ConnectionManagerError::MaxReconnectAttemptsExceeded);
         }
 
@@ -207,7 +225,8 @@ impl ConnectionManager {
         // Get current configuration
         let config = {
             let config_lock = self.current_config.read().await;
-            config_lock.as_ref()
+            config_lock
+                .as_ref()
                 .ok_or(ConnectionManagerError::NoConfiguration)?
                 .clone()
         };
@@ -240,9 +259,10 @@ impl ConnectionManager {
                     }
 
                     if *attempts >= self.base_config.max_reconnect_attempts {
-                        *self.connection_status.write().await = ConnectionStatus::Error(
-                            format!("Reconnection failed after {} attempts", *attempts)
-                        );
+                        *self.connection_status.write().await = ConnectionStatus::Error(format!(
+                            "Reconnection failed after {} attempts",
+                            *attempts
+                        ));
                     }
 
                     Err(ConnectionManagerError::ReconnectionFailed(e.to_string()))
@@ -254,7 +274,10 @@ impl ConnectionManager {
     }
 
     /// Update connection configuration
-    pub async fn update_config(&self, config: ConnectionConfig) -> Result<(), ConnectionManagerError> {
+    pub async fn update_config(
+        &self,
+        config: ConnectionConfig,
+    ) -> Result<(), ConnectionManagerError> {
         info!("⚙️ Updating connection configuration");
 
         // If currently connected, disconnect and reconnect with new config
@@ -436,9 +459,9 @@ impl ConnectionStatistics {
         // - Connected for at least 30 seconds
         // - Less than 3 reconnections in current session
         // - No errors in last 10 seconds
-        self.current_session_time >= Duration::from_secs(30) &&
-            self.connection_lost_count < 3 &&
-            self.last_frame_elapsed < Duration::from_secs(10)
+        self.current_session_time >= Duration::from_secs(30)
+            && self.connection_lost_count < 3
+            && self.last_frame_elapsed < Duration::from_secs(10)
     }
 
     /// Get human-readable status summary
