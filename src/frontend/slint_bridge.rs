@@ -65,9 +65,12 @@ impl SlintBridge {
         F: Fn(bool) + Send + Sync + 'static,
     {
         let callback = Arc::new(callback);
+        let main_window_weak = self.main_window.as_weak();
         self.main_window.on_toggle_catch_up(move || {
-            let current_mode = self.catch_up_mode();
-            callback(!current_mode);
+            if let Some(window) = main_window_weak.upgrade() {
+                let current_mode = window.get_catch_up_mode();
+                callback(!current_mode);
+            }
         });
         Ok(())
     }
@@ -98,16 +101,15 @@ impl SlintBridge {
 
     /// Update connection status in the UI
     pub async fn update_connection_status(&self, status: &str, connected: bool) -> Result<(), SlintBridgeError> {
-        // Use invoke_from_event_loop to ensure UI updates happen on the correct thread
         let status = status.to_string();
         let main_window = self.main_window.as_weak();
 
         slint::invoke_from_event_loop(move || {
             if let Some(window) = main_window.upgrade() {
-                window.set_connection_status(status.into());
+                window.set_connection_status(status.clone().into());
                 window.set_is_connected(connected);
 
-                debug!("🔄 UI connection status updated: {} (connected: {})", status, connected);
+                debug!("🔄 UI connection status updated: {} (connected: {})", status.clone(), connected);
             }
         }).map_err(|e| SlintBridgeError::UiUpdate(e.to_string()))?;
 
@@ -127,16 +129,17 @@ impl SlintBridge {
         let format = format.to_string();
         let main_window = self.main_window.as_weak();
 
+        // Move the image to the UI thread
         slint::invoke_from_event_loop(move || {
             if let Some(window) = main_window.upgrade() {
                 window.set_current_frame(image);
-                window.set_resolution(resolution.into());
-                window.set_frame_format(format.into());
+                window.set_resolution(resolution.clone().into());
+                window.set_frame_format(format.clone().into());
                 window.set_frame_id(frame_id);
                 window.set_sequence_number(sequence_number);
                 window.set_has_frame(true);
 
-                debug!("🖼️ UI frame updated: {} {}", resolution, format);
+                debug!("🖼️ UI frame updated: {} {}", resolution.clone(), format.clone());
             }
         }).map_err(|e| SlintBridgeError::UiUpdate(e.to_string()))?;
 
@@ -159,7 +162,7 @@ impl SlintBridge {
                 window.set_total_frames(total_frames);
 
                 if fps > 0.0 {
-                    debug!("📊 UI stats updated: {:.1} FPS, {:.1}ms latency, {} frames", 
+                    debug!("📊 UI stats updated: {:.1} FPS, {:.1}ms latency, {} frames",
                            fps, latency_ms, total_frames);
                 }
             }
@@ -175,11 +178,14 @@ impl SlintBridge {
         let main_window = self.main_window.as_weak();
 
         slint::invoke_from_event_loop(move || {
+            let shm_str_name = shm_name.clone();
+            let format_str = format.clone();
+
             if let Some(window) = main_window.upgrade() {
                 window.set_shm_name(shm_name.into());
                 window.set_format(format.into());
 
-                debug!("⚙️ UI config updated: {} ({})", shm_name, format);
+                debug!("⚙️ UI config updated: {} ({})", shm_str_name, format_str);
             }
         }).map_err(|e| SlintBridgeError::UiUpdate(e.to_string()))?;
 
@@ -272,20 +278,6 @@ impl SlintBridge {
     pub async fn hide(&self) -> Result<(), SlintBridgeError> {
         self.main_window.hide()
             .map_err(|e| SlintBridgeError::Display(e.to_string()))?;
-        Ok(())
-    }
-
-    /// Set window title
-    pub async fn set_title(&self, title: &str) -> Result<(), SlintBridgeError> {
-        let title = title.to_string();
-        let main_window = self.main_window.as_weak();
-
-        slint::invoke_from_event_loop(move || {
-            if let Some(window) = main_window.upgrade() {
-                window.set_title(title.into());
-            }
-        }).map_err(|e| SlintBridgeError::UiUpdate(e.to_string()))?;
-
         Ok(())
     }
 

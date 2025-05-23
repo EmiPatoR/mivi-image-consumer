@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 use tracing::{debug, warn, error};
-
+use lru::LruCache;
 use crate::backend::types::ProcessedFrame;
 
 /// Image converter for converting backend frames to Slint images
@@ -17,7 +17,7 @@ pub struct ImageConverter {
     max_cache_size: usize,
     
     // Image cache for frequently used images
-    image_cache: parking_lot::RwLock<std::collections::LRUCache<u64, Image>>,
+    image_cache: parking_lot::RwLock<LruCache<u64, Image>>,
 }
 
 impl ImageConverter {
@@ -27,7 +27,7 @@ impl ImageConverter {
             conversion_stats: parking_lot::RwLock::new(ImageConversionStats::default()),
             enable_caching: false, // Disabled for medical imaging to ensure fresh data
             max_cache_size: 10,
-            image_cache: parking_lot::RwLock::new(std::collections::LRUCache::new(
+            image_cache: parking_lot::RwLock::new(LruCache::new(
                 std::num::NonZeroUsize::new(10).unwrap()
             )),
         }
@@ -420,7 +420,7 @@ pub enum ImageConversionError {
         width: u32,
         height: u32,
     },
-    
+
     #[error("Invalid data size: expected {expected} bytes for {width}x{height}, got {actual}")]
     InvalidDataSize {
         expected: usize,
@@ -428,22 +428,22 @@ pub enum ImageConversionError {
         width: u32,
         height: u32,
     },
-    
+
     #[error("Buffer size mismatch: source {source} bytes, target {target} bytes")]
     BufferSizeMismatch {
         source: usize,
         target: usize,
     },
-    
+
     #[error("Unsupported format: {0:?}")]
     UnsupportedFormat(MedicalImageFormat),
-    
+
     #[error("Slint image creation failed: {0}")]
     SlintImageCreation(String),
-    
+
     #[error("Memory allocation failed: {0}")]
     MemoryAllocation(String),
-    
+
     #[error("Other conversion error: {0}")]
     Other(String),
 }

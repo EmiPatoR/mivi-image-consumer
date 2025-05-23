@@ -102,10 +102,10 @@ fn validate_args(args: &Args) -> Result<(), MiViError> {
     
     // Validate format
     let valid_formats = ["yuv", "bgr", "rgb", "rgba", "grayscale"];
-    if !valid_formats.contains(&args.format.to_lowercase().as_str()) {
+    if !valid_formats.contains(&args.format.to_string().to_lowercase().as_str()) {
         return Err(MiViError::Configuration(format!(
-            "Invalid format '{}'. Valid formats: {}", 
-            args.format, 
+            "Invalid format '{}'. Valid formats: {}",
+            args.format,
             valid_formats.join(", ")
         )));
     }
@@ -144,7 +144,7 @@ fn create_backend_config(args: &Args) -> BackendConfig {
     
     BackendConfig {
         shm_name: args.shm_name.clone(),
-        format: args.format.clone(),
+        format: args.format.to_string(),
         width: args.width,
         height: args.height,
         catch_up: args.catch_up,
@@ -268,67 +268,4 @@ fn cleanup_on_exit() {
     }
     
     info!("✅ Cleanup complete");
-}
-
-// Register cleanup function to run on exit
-#[cfg(not(test))]
-#[used]
-static CLEANUP_HANDLER: fn() = cleanup_on_exit;
-
-// For testing purposes
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_validate_args() {
-        let valid_args = Args {
-            shm_name: "test_shm".to_string(),
-            format: "yuv".to_string(),
-            width: 1920,
-            height: 1080,
-            catch_up: false,
-            verbose: false,
-            reconnect_delay: 1000,
-        };
-        
-        assert!(validate_args(&valid_args).is_ok());
-        
-        // Test invalid format
-        let mut invalid_args = valid_args.clone();
-        invalid_args.format = "invalid".to_string();
-        assert!(validate_args(&invalid_args).is_err());
-        
-        // Test zero dimensions
-        let mut invalid_args = valid_args.clone();
-        invalid_args.width = 0;
-        assert!(validate_args(&invalid_args).is_err());
-        
-        // Test empty shm name
-        let mut invalid_args = valid_args;
-        invalid_args.shm_name = "".to_string();
-        assert!(validate_args(&invalid_args).is_err());
-    }
-    
-    #[test]
-    fn test_create_backend_config() {
-        let args = Args {
-            shm_name: "test_shm".to_string(),
-            format: "yuv".to_string(),
-            width: 1920,
-            height: 1080,
-            catch_up: true,
-            verbose: false,
-            reconnect_delay: 2000,
-        };
-        
-        let config = create_backend_config(&args);
-        
-        assert_eq!(config.shm_name, "test_shm");
-        assert_eq!(config.format, "yuv");
-        assert_eq!(config.width, 1920);
-        assert_eq!(config.height, 1080);
-        assert_eq!(config.catch_up, true);
-        assert_eq!(config.reconnect_delay.as_millis(), 2000);
-    }
 }

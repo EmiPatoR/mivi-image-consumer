@@ -13,6 +13,7 @@ pub use types::*;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::{info, warn, error, debug};
+use crate::backend::connection_manager::ConnectionManagerError;
 
 /// Backend service that manages all frame streaming operations
 pub struct MedicalFrameBackend {
@@ -35,12 +36,15 @@ impl MedicalFrameBackend {
     pub fn new(config: BackendConfig) -> Self {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, _) = broadcast::channel(1000);
-        
-        let connection_manager = Arc::new(ConnectionManager::new(config.clone()));
+
+        // Convert BackendConfig to ConnectionConfig
+        let connection_config = Self::convert_config(config);
+
+        let connection_manager = Arc::new(ConnectionManager::new(connection_config));
         let frame_processor = Arc::new(FrameProcessor::new());
-        
+
         let current_state = Arc::new(RwLock::new(BackendState::default()));
-        
+
         Self {
             connection_manager,
             frame_processor,
@@ -50,7 +54,18 @@ impl MedicalFrameBackend {
             current_state,
         }
     }
-    
+
+    fn convert_config(config: BackendConfig) -> ConnectionConfig {
+        let connection_config = ConnectionConfig {
+            reconnect_delay: config.reconnect_delay,
+            max_reconnect_attempts: 10,
+            frame_timeout: std::time::Duration::from_secs(5),
+            buffer_size: 1024 * 1024 * 50,
+            verbose_logging: config.verbose,
+        };
+        connection_config
+    }
+
     /// Get a command sender for frontend communication
     pub fn get_command_sender(&self) -> mpsc::UnboundedSender<BackendCommand> {
         self.command_tx.clone()
@@ -137,8 +152,8 @@ impl MedicalFrameBackend {
         match command {
             BackendCommand::Connect { shm_name, config } => {
                 info!("🔌 Connecting to shared memory: {}", shm_name);
-                
-                match connection_manager.connect(&shm_name, config).await {
+                let connection_config = Self::convert_config(config);
+                match connection_manager.connect(&shm_name, connection_config).await {
                     Ok(_) => {
                         let mut state = current_state.write().await;
                         state.connection_status = ConnectionStatus::Connected;
@@ -181,8 +196,9 @@ impl MedicalFrameBackend {
             
             BackendCommand::UpdateConfig(config) => {
                 info!("⚙️ Updating configuration");
-                
-                connection_manager.update_config(config).await?;
+                let connection_config = Self::convert_config(config);
+
+                connection_manager.update_config(connection_config).await?;
                 let _ = event_tx.send(BackendEvent::SettingsChanged);
             }
         }
@@ -231,14 +247,14 @@ impl MedicalFrameBackend {
                 warn!("Frame processing error: {}", e);
                 
                 // Check if we should attempt reconnection
-                if matches!(e, BackendError::ConnectionLost) {
+                if matches!(e, ConnectionManagerError::ConnectionLost) {
                     let mut state = current_state.write().await;
                     state.connection_status = ConnectionStatus::Reconnecting;
                     
                     let _ = event_tx.send(BackendEvent::ConnectionLost);
                 }
                 
-                return Err(e);
+                return Err(BackendError::from(e));
             }
         }
         
@@ -257,6 +273,19 @@ impl MedicalFrameBackend {
         };
         
         let _ = event_tx.send(BackendEvent::StatisticsUpdate(stats));
+    }
+}
+
+// Add From implementations for error conversion
+impl From<connection_manager::ConnectionManagerError> for BackendError {
+    fn from(err: connection_manager::ConnectionManagerError) -> Self {
+        BackendError::Other(err.to_string())
+    }
+}
+
+impl From<frame_processor::ProcessingError> for BackendError {
+    fn from(err: frame_processor::ProcessingError) -> Self {
+        BackendError::FrameProcessing(err.to_string())
     }
 }
 
